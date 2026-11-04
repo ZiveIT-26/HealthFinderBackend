@@ -1,6 +1,15 @@
 allowedApiDomains:
   - www.zoznam-lekarov.sk
 
+trustedDoctorSources:
+  - domain: www.zoznam-lekarov.sk
+    description: Slovak directory of doctors and healthcare providers.
+    apiInstructions: |
+      On the website root you can see all the specialities with following links.
+      Then you should go to the desired link ad go deep search by location.
+      If user have no defined location use Kosice I.
+      Then search for the closest location to user or take first few doctors and get more info about them following links.
+
 systemPrompts:
   assistant: |
     You are a medical assistant that helps users find doctors in Kosice region.

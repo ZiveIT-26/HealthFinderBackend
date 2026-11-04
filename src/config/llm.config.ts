@@ -5,12 +5,19 @@ import { parse } from 'yaml';
 
 export type LlmConfig = {
   allowedApiDomains: string[];
+  trustedDoctorSources: DoctorSource[];
   systemPrompts: {
     assistant: string;
     emergencyCheck: string;
     emergencyResponse: string;
     apiRequest: string;
   };
+};
+
+export type DoctorSource = {
+  domain: string;
+  description: string;
+  apiInstructions: string;
 };
 
 export default registerAs(

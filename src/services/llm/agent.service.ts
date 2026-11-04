@@ -19,7 +19,9 @@ import {
 import { z } from 'zod';
 import type { LlmConfig } from '../../config/llm.config.js';
 import { createApiRequestTool } from './tools/api-request.tool.js';
-import { createSearchDoctorsTool } from './tools/search-doctors.tool.js';
+// import { createSearchDoctorsTool } from './tools/search-doctors.tool.js';
+import { createGetTrustedDoctorSourceInstructionsTool } from './tools/get-trusted-doctor-source-instructions.tool.js';
+import { createListTrustedDoctorSourcesTool } from './tools/list-trusted-doctor-sources.tool.js';
 
 const EMERGENCY_CONFIDENCE_THRESHOLD = 0.7;
 const agentLogger = new Logger('AgentGraph');
@@ -44,8 +46,12 @@ function createAgentGraph(
   llmConfig: LlmConfig,
 ) {
   const tools = [
-    createSearchDoctorsTool(tavilyApiKey),
+    // createSearchDoctorsTool(tavilyApiKey),
     createApiRequestTool(httpService, llmConfig),
+    createListTrustedDoctorSourcesTool(llmConfig.trustedDoctorSources),
+    createGetTrustedDoctorSourceInstructionsTool(
+      llmConfig.trustedDoctorSources,
+    ),
   ];
   const model = new ChatOpenAI({
     model: llm.model,
