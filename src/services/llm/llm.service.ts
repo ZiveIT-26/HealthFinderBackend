@@ -4,10 +4,12 @@ import { randomUUID } from 'node:crypto';
 import { OpenAI } from 'openai';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import { DbService } from '../db/db.service.js';
+import { SYSTEM_PROMPT } from './system.prompt.js';
 
 @Injectable()
 export class LlmService {
   private readonly openai: OpenAI;
+  private readonly model: string;
 
   private sessions = new Map<string, ChatCompletionMessageParam[]>();
   private streamQueue = new Map<
@@ -16,11 +18,15 @@ export class LlmService {
   >();
 
   constructor(private configService: ConfigService, private dbService: DbService,) {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is required');
-    }
-    this.openai = new OpenAI({ apiKey });
+    //const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+    //if (!apiKey) throw new Error('OPENAI_API_KEY is required');
+    //this.openai = new OpenAI({ apiKey });
+
+    this.model = this.configService.get<string>('LLM_MODEL') ?? 'gpt-4o'
+    this.openai = new OpenAI({
+      apiKey: this.configService.get<string>('OPENAI_API_KEY') ?? 'ollama',
+      baseURL: this.configService.get<string>('LLM_BASE_URL'),
+    });
   }
 
   public async prepareStream(prompt: string, incomingSessionId?: string) {
@@ -65,8 +71,8 @@ export class LlmService {
     const { sessionId, messages } = queueData;
 
     const stream = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: messages,
+      model: this.model, //'gpt-4o',
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],  // mm: system because WE give instructions
       stream: true,
     });
 
