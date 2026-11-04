@@ -1,0 +1,32 @@
+### 1. New conversation start
+POST http://localhost:3000/chat
+Content-Type: application/json
+
+{"prompt": "Bolí ma hlava už tri dni"}
+
+> {% client.global.set("streamId", response.body.streamId); client.global.set("sessionId", response.body.sessionId); %}
+
+### - 2. Run after first post
+GET http://localhost:3000/chat/stream/{{streamId}}
+Accept: text/event-stream
+
+### 3. Next post in the sequence
+POST http://localhost:3000/chat
+Content-Type: application/json
+
+{"prompt": "A mám aj teplotu", "sessionId": "{{sessionId}}"}
+
+> {% client.global.set("streamId", response.body.streamId); %}
+
+
+### 2.1 Run after first post
+GET http://localhost:3000/chat/history/{{sessionId}}
+
+
+### 3. Next post in the sequence
+POST http://localhost:3000/chat
+Content-Type: application/json
+
+{"prompt": "Ano, asi 38.5", "sessionId": "{{sessionId}}"}
+
+> {% client.global.set("streamId", response.body.streamId); %}

@@ -91,15 +91,6 @@ export class ChatSessionService {
       }
     }
 
-    for await (const event of eventStream) {
-      if (event.event === 'on_chat_model_stream' && event.data.chunk?.content) {
-        const content = event.data.chunk.content;
-        completeAssistantResponse += content;
-
-        if (!DEBUG) yield content;
-      }
-    }
-
     const history = this.sessions.get(sessionId) || messages;
     history.push(new AIMessage(completeAssistantResponse));
     this.sessions.set(sessionId, history);
