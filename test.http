@@ -30,3 +30,15 @@ Content-Type: application/json
 {"prompt": "Ano, asi 38.5", "sessionId": "{{sessionId}}"}
 
 > {% client.global.set("streamId", response.body.streamId); %}
+
+### 1. Test emergency checker in a new conversation
+POST http://localhost:3000/chat
+Content-Type: application/json
+
+{"prompt": "Silno krvácam."}
+
+> {% client.global.set("streamId", response.body.streamId); client.global.set("sessionId", response.body.sessionId); %}
+
+### - 2. Run after post
+GET http://localhost:3000/chat/stream/{{streamId}}
+Accept: text/event-stream

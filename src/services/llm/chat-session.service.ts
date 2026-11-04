@@ -62,24 +62,74 @@ export class ChatSessionService {
 
     const eventStream = this.agentService.streamEvents(messages);
     let completeAssistantResponse = '';
+    let messageTokenUsage = {
+      input: 0,
+      output: 0,
+      total: 0,
+    };
 
-    for await (const event of eventStream) {
-      switch (event.event) {
+    try {
+      for await (const event of eventStream) {
+        const graphNode = event.metadata?.langgraph_node;
+        const eventNode = graphNode ? ` [node=${graphNode}]` : '';
+        const isGraphNodeLifecycle =
+          Boolean(graphNode) && event.name === graphNode;
+
+        switch (event.event) {
+        case 'on_chain_start':
+          if (!isGraphNodeLifecycle) break;
+          this.logger.log(
+            `[${sessionId}] Graph node started${eventNode}`,
+          );
+          break;
+        case 'on_chain_end':
+          if (!isGraphNodeLifecycle) break;
+          this.logger.log(`[${sessionId}] Graph node finished${eventNode}`);
+          break;
+        case 'on_chain_error':
+          if (!isGraphNodeLifecycle) break;
+          this.logger.error(
+            `[${sessionId}] Graph node failed${eventNode}`,
+            event.data.error,
+          );
+          break;
+        case 'on_chat_model_start':
+          this.logger.log(
+            `[${sessionId}] Model call started${eventNode}`,
+          );
+          break;
+        case 'on_chat_model_error':
+          this.logger.error(
+            `[${sessionId}] Model call failed${eventNode}`,
+            getErrorMessage(event.data.error),
+          );
+          break;
         case 'on_chat_model_stream': {
+          if (graphNode === 'checkEmergency') break;
+
           const content = event.data.chunk?.content;
           if (!content) break;
           completeAssistantResponse += content;
-          if (!DEBUG) yield content;
+          yield content;
+          break;
+        }
+        case 'on_chat_model_end': {
+          const usage = getTokenUsage(event.data.output);
+          messageTokenUsage = addTokenUsage(messageTokenUsage, usage);
+          this.logger.log(
+            `[${sessionId}] Model call finished${eventNode} ` +
+              `tokens: input=${usage.input}, output=${usage.output}, total=${usage.total}`,
+          );
           break;
         }
         case 'on_tool_start':
           this.logger.log(
-            `[${sessionId}] Tool call: ${event.name}(${JSON.stringify(event.data.input)})`,
+            `[${sessionId}] Tool call started: ${event.name}(${JSON.stringify(event.data.input)})`,
           );
           break;
         case 'on_tool_end':
           this.logger.log(
-            `[${sessionId}] Tool result: ${event.name}\n${event.data.output?.content ?? event.data.output}`,
+            `[${sessionId}] Tool call finished: ${event.name}\n${event.data.output?.content ?? event.data.output}`,
           );
           break;
         case 'on_tool_error':
@@ -88,8 +138,22 @@ export class ChatSessionService {
             event.data.error,
           );
           break;
+        }
       }
+    } catch (error) {
+      const message = getErrorMessage(error);
+      this.logger.error(
+        `[${sessionId}] Agent stream failed: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      yield 'The assistant could not complete this response. Please try again.';
     }
+
+    this.logger.log(
+      `[${sessionId}] Message token usage: ` +
+        `input=${messageTokenUsage.input}, output=${messageTokenUsage.output}, ` +
+        `total=${messageTokenUsage.total}`,
+    );
 
     const history = this.sessions.get(sessionId) || messages;
     history.push(new AIMessage(completeAssistantResponse));
@@ -108,4 +172,36 @@ export class ChatSessionService {
       yield completeAssistantResponse;
     }
   }
+
+}
+
+type TokenUsage = {
+  input: number;
+  output: number;
+  total: number;
+};
+
+function getTokenUsage(output: any): TokenUsage {
+  const usage = output?.usage_metadata ?? output?.response_metadata?.token_usage;
+  const input = usage?.input_tokens ?? usage?.prompt_tokens ?? 0;
+  const outputTokens = usage?.output_tokens ?? usage?.completion_tokens ?? 0;
+  const total = usage?.total_tokens ?? input + outputTokens;
+
+  return {
+    input,
+    output: outputTokens,
+    total,
+  };
+}
+
+function addTokenUsage(total: TokenUsage, usage: TokenUsage): TokenUsage {
+  return {
+    input: total.input + usage.input,
+    output: total.output + usage.output,
+    total: total.total + usage.total,
+  };
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
