@@ -9,7 +9,7 @@ import {
   START,
   END,
 } from '@langchain/langgraph';
-import { ToolNode, toolsCondition } from '@langchain/langgraph/prebuilt';
+import { ToolNode } from '@langchain/langgraph/prebuilt';
 import {
   AIMessage,
   BaseMessage,
@@ -18,10 +18,14 @@ import {
 } from '@langchain/core/messages';
 import { z } from 'zod';
 import type { LlmConfig } from '../../config/llm.config.js';
-import { createApiRequestTool } from './tools/api-request.tool.js';
+import { createFetchTrustedDoctorPageTool } from './tools/fetch-trusted-doctor-page.tool.js';
 // import { createSearchDoctorsTool } from './tools/search-doctors.tool.js';
 import { createGetTrustedDoctorSourceInstructionsTool } from './tools/get-trusted-doctor-source-instructions.tool.js';
 import { createListTrustedDoctorSourcesTool } from './tools/list-trusted-doctor-sources.tool.js';
+import {
+  doctorResponseSchema,
+  type DoctorResponse,
+} from './doctor-response.js';
 
 const EMERGENCY_CONFIDENCE_THRESHOLD = 0.7;
 const agentLogger = new Logger('AgentGraph');
@@ -37,6 +41,14 @@ const AgentState = Annotation.Root({
     reducer: (_, update) => update,
     default: () => false,
   }),
+  response: Annotation<DoctorResponse | undefined>({
+    reducer: (_, update) => update,
+    default: () => undefined,
+  }),
+  toolsUsed: Annotation<boolean>({
+    reducer: (_, update) => update,
+    default: () => false,
+  }),
 });
 
 function createAgentGraph(
@@ -47,7 +59,7 @@ function createAgentGraph(
 ) {
   const tools = [
     // createSearchDoctorsTool(tavilyApiKey),
-    createApiRequestTool(httpService, llmConfig),
+    createFetchTrustedDoctorPageTool(httpService, llmConfig),
     createListTrustedDoctorSourcesTool(llmConfig.trustedDoctorSources),
     createGetTrustedDoctorSourceInstructionsTool(
       llmConfig.trustedDoctorSources,
@@ -60,8 +72,16 @@ function createAgentGraph(
     configuration: llm.baseURL ? { baseURL: llm.baseURL } : undefined,
   });
   const assistantModel = model.bindTools(tools);
-  const checkEmergencyModel = model.withStructuredOutput(checkEmergencySchema);
+  const checkEmergencyModel = model.withStructuredOutput(checkEmergencySchema, {
+    method: 'jsonSchema',
+    strict: true,
+  });
   const emergencyModel = model;
+  const responseModel = model.withStructuredOutput(doctorResponseSchema, {
+    method: 'functionCalling',
+    strict: true,
+  });
+  const toolNode = new ToolNode(tools);
 
   return new StateGraph(AgentState)
     .addNode('checkEmergency', async ({ messages }) => {
@@ -113,13 +133,15 @@ function createAgentGraph(
         };
       }
 
+      const response = await emergencyModel.invoke([
+        new SystemMessage(llmConfig.systemPrompts.emergencyResponse),
+        latestMessage,
+      ]);
+      const text = response.content.toString();
+
       return {
-        messages: [
-          await emergencyModel.invoke([
-            new SystemMessage(llmConfig.systemPrompts.emergencyResponse),
-            latestMessage,
-          ]),
-        ],
+        messages: [new AIMessage(text)],
+        response: { text, doctors: [] },
       };
     })
     .addNode('agent', async ({ messages }) => ({
@@ -130,14 +152,37 @@ function createAgentGraph(
         ]),
       ],
     }))
-    .addNode('tools', new ToolNode(tools))
+    .addNode('tools', async (state) => ({
+      ...(await toolNode.invoke(state)),
+      toolsUsed: true,
+    }))
+    .addNode('finalize', async ({ messages }) => {
+      const response = await responseModel.invoke([
+        new SystemMessage(llmConfig.systemPrompts.responseFormatter),
+        ...messages,
+      ]);
+
+      return {
+        response,
+        messages: [new AIMessage(response.text)],
+      };
+    })
     .addEdge(START, 'checkEmergency')
     .addConditionalEdges('checkEmergency', ({ isEmergency }) =>
       isEmergency ? 'emergency' : 'agent',
     )
     .addEdge('emergency', END)
-    .addConditionalEdges('agent', toolsCondition)
+    .addConditionalEdges('agent', ({ messages, toolsUsed }) => {
+      const lastMessage = messages[messages.length - 1];
+      return lastMessage instanceof AIMessage &&
+        (lastMessage.tool_calls?.length ?? 0) > 0
+        ? 'tools'
+        : toolsUsed
+          ? 'finalize'
+          : END;
+    })
     .addEdge('tools', 'agent')
+    .addEdge('finalize', END)
     .compile();
 }
 

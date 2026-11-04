@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { registerAs } from '@nestjs/config';
 import { parse } from 'yaml';
 
@@ -10,6 +11,7 @@ export type LlmConfig = {
     assistant: string;
     emergencyCheck: string;
     emergencyResponse: string;
+    responseFormatter: string;
     apiRequest: string;
   };
 };
@@ -24,6 +26,9 @@ export default registerAs(
   'llm',
   (): LlmConfig =>
     parse(
-      readFileSync(join(__dirname, 'llm.config.yaml'), 'utf8'),
+      readFileSync(
+        join(fileURLToPath(new URL('.', import.meta.url)), 'llm.config.yaml'),
+        'utf8',
+      ),
     ) as LlmConfig,
 );

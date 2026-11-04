@@ -1,10 +1,16 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages';
 import { DbService } from '../db/db.service.js';
 import { AgentService } from './agent.service.js';
+import type { DoctorResponse } from './doctor-response.js';
 
 const DEBUG = true;
+export type StreamChunk =
+  | string
+  | DoctorResponse
+  | { type: 'heartbeat'; timestamp: string }
+  | { type: 'error'; message: string };
 
 @Injectable()
 export class ChatSessionService {
@@ -54,14 +60,26 @@ export class ChatSessionService {
     const queueData = this.streamQueue.get(streamId);
 
     if (!queueData) {
-      throw new NotFoundException('Stream session not found or expired');
+      this.logger.error(
+        `[stream=${streamId}] Stream session not found or expired`,
+      );
+      yield {
+        type: 'error',
+        message:
+          'Stream session not found or expired. Create a new message and use its returned streamId.',
+      };
+      return;
     }
 
     this.streamQueue.delete(streamId);
     const { sessionId, messages } = queueData;
+    this.logger.log(
+      `[${sessionId}] Starting stream [stream=${streamId}]`,
+    );
 
     const eventStream = this.agentService.streamEvents(messages);
     let completeAssistantResponse = '';
+    let completeDoctorResponse: DoctorResponse | undefined;
     let messageTokenUsage = {
       input: 0,
       output: 0,
@@ -85,12 +103,20 @@ export class ChatSessionService {
         case 'on_chain_end':
           if (!isGraphNodeLifecycle) break;
           this.logger.log(`[${sessionId}] Graph node finished${eventNode}`);
+          if (graphNode === 'emergency' || graphNode === 'finalize') {
+            const response = event.data.output?.response as
+              | DoctorResponse
+              | undefined;
+            if (response) {
+              completeAssistantResponse = response.text;
+              completeDoctorResponse = response;
+            }
+          }
           break;
         case 'on_chain_error':
-          if (!isGraphNodeLifecycle) break;
           this.logger.error(
             `[${sessionId}] Graph node failed${eventNode}`,
-            event.data.error,
+            formatError(event.data.error ?? event.data),
           );
           break;
         case 'on_chat_model_start':
@@ -101,11 +127,13 @@ export class ChatSessionService {
         case 'on_chat_model_error':
           this.logger.error(
             `[${sessionId}] Model call failed${eventNode}`,
-            getErrorMessage(event.data.error),
+            formatError(event.data.error ?? event.data),
           );
           break;
         case 'on_chat_model_stream': {
-          if (graphNode === 'checkEmergency') break;
+          if (graphNode === 'checkEmergency' || graphNode === 'finalize') {
+            break;
+          }
 
           const content = event.data.chunk?.content;
           if (!content) break;
@@ -135,7 +163,7 @@ export class ChatSessionService {
         case 'on_tool_error':
           this.logger.error(
             `[${sessionId}] Tool error: ${event.name}`,
-            event.data.error,
+            formatError(event.data.error ?? event.data),
           );
           break;
         }
@@ -155,22 +183,33 @@ export class ChatSessionService {
         `total=${messageTokenUsage.total}`,
     );
 
-    const history = this.sessions.get(sessionId) || messages;
-    history.push(new AIMessage(completeAssistantResponse));
-    this.sessions.set(sessionId, history);
+    try {
+      const history = this.sessions.get(sessionId) || messages;
+      history.push(new AIMessage(completeAssistantResponse));
+      this.sessions.set(sessionId, history);
 
-    await this.dbService.saveMessage(
-      sessionId,
-      'assistant',
-      completeAssistantResponse,
-    );
+      await this.dbService.saveMessage(
+        sessionId,
+        'assistant',
+        completeAssistantResponse,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[${sessionId}] Failed to persist assistant response: ${getErrorMessage(error)}`,
+        error instanceof Error ? error.stack : formatError(error),
+      );
+    }
 
     if (DEBUG) {
       this.logger.log(
         `[${sessionId}] Assistant response:\n${completeAssistantResponse}`,
       );
-      yield completeAssistantResponse;
     }
+    if (completeDoctorResponse) {
+      yield completeDoctorResponse;
+    }
+
+    this.logger.log(`[${sessionId}] Stream completed [stream=${streamId}]`);
   }
 
 }
@@ -204,4 +243,20 @@ function addTokenUsage(total: TokenUsage, usage: TokenUsage): TokenUsage {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
 }

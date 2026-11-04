@@ -1,60 +1,53 @@
 import { tool } from '@langchain/core/tools';
 import { HttpService } from '@nestjs/axios';
-import { AxiosResponse } from 'axios';
 import { z } from 'zod';
-import { firstValueFrom } from 'rxjs';
 import type { LlmConfig } from '../../../config/llm.config.js';
+import { AxiosResponse } from 'axios';
+import { firstValueFrom } from 'rxjs';
 
-const MAX_RESPONSE_BYTES = 100_000;
+const MAX_PAGE_CHARS = 100_000_000;
 const MAX_REDIRECTS = 3;
 
-const apiRequestSchema = z.object({
-  url: z.url().describe('The HTTPS URL of the whitelisted API endpoint.'),
-  method: z
-    .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
-    .default('GET')
-    .describe('The HTTP method to use.'),
-  headers: z
-    .record(z.string(), z.string())
-    .optional()
-    .describe('Optional request headers. Do not include credentials or secrets.'),
-  body: z
-    .string()
-    .optional()
-    .describe('Optional request body, usually JSON for POST, PUT, or PATCH.'),
-});
-
-export function createApiRequestTool(
+export function createFetchTrustedDoctorPageTool(
   httpService: HttpService,
   llmConfig: LlmConfig,
 ) {
   return tool(
-    async ({ url, method, headers, body }) => {
-      const response = await requestWhitelistedUrl(httpService, url, llmConfig, {
-        method,
-        headers,
-        body,
-      });
-      const responseBody = await readResponseBody(response);
+    async ({ url }) => {
+      const response = await requestWhitelistedUrl(
+        httpService,
+        url,
+        llmConfig,
+        {
+          method: 'GET',
+        },
+      );
+      const html = await readResponseBody(response);
 
       if (response.status < 200 || response.status >= 300) {
         throw new Error(
-          `Whitelisted API request failed with HTTP ${response.status}: ${responseBody.slice(0, 500)}`,
+          `Trusted doctor page request failed with HTTP ${response.status}: ${html.slice(0, 500)}`,
         );
       }
 
-      return `HTTP ${response.status} ${response.statusText}\n${responseBody}`;
+      const contentType = response.headers['content-type'];
+      return `URL: ${url}\nContent-Type: ${String(contentType ?? 'unknown')}\n\n${html.slice(0, MAX_PAGE_CHARS)}`;
     },
     {
-      name: 'request_whitelisted_api',
+      name: 'fetch_trusted_doctor_page',
       description:
-        'Make an HTTPS API request only to the explicitly whitelisted domain.',
-      schema: apiRequestSchema,
+        'Fetch and inspect an HTML page from a configured trusted doctor website. Use this for plain websites without an API. Start with the trusted source domain, follow links found in the returned HTML, and never invent URLs.',
+      schema: z.object({
+        url: z
+          .string()
+          .min(1)
+          .describe('A full HTTPS URL on a configured trusted doctor domain.'),
+      }),
     },
   );
 }
 
-async function requestWhitelistedUrl(
+export async function requestWhitelistedUrl(
   httpService: HttpService,
   inputUrl: string,
   llmConfig: LlmConfig,
@@ -78,8 +71,8 @@ async function requestWhitelistedUrl(
         headers: init.headers,
         data: init.body,
         timeout: 10_000,
-        maxContentLength: MAX_RESPONSE_BYTES,
-        maxBodyLength: MAX_RESPONSE_BYTES,
+        maxContentLength: MAX_PAGE_CHARS,
+        maxBodyLength: MAX_PAGE_CHARS,
         maxRedirects: 0,
         responseType: 'text',
       }),
@@ -119,7 +112,7 @@ function validateUrl(inputUrl: string, llmConfig: LlmConfig): string {
   return url.toString();
 }
 
-async function readResponseBody(
+export async function readResponseBody(
   response: AxiosResponse<string>,
 ): Promise<string> {
   return response.data;
