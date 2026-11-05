@@ -24,6 +24,9 @@
   "dependencies": {
     "@langchain/core": "^1.3.0",
     "@langchain/langgraph": "^1.5.2",
+    "@langchain/openai": "^1.7.0",
+    "@langchain/tavily": "^1.2.0",
+    "@nestjs/axios": "^12.0.1",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.0.1",
     "@nestjs/core": "^12.0.1",
@@ -31,7 +34,8 @@
     "openai": "^7.43.0",
     "postgrejs": "^3.14.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.0",
