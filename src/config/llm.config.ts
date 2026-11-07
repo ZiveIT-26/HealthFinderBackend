@@ -10,9 +10,9 @@ export type LlmConfig = {
   systemPrompts: {
     assistant: string;
     emergencyCheck: string;
+    searchPlanner: string;
     emergencyResponse: string;
     responseFormatter: string;
-    apiRequest: string;
   };
 };
 

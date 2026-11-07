@@ -131,7 +131,12 @@ export class ChatSessionService {
           );
           break;
         case 'on_chat_model_stream': {
-          if (graphNode === 'checkEmergency' || graphNode === 'finalize') {
+          // These nodes produce JSON for the code, not text for the user.
+          if (
+            graphNode === 'checkEmergency' ||
+            graphNode === 'planSearch' ||
+            graphNode === 'finalize'
+          ) {
             break;
           }
 

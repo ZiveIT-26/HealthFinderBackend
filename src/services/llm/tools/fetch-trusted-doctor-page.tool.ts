@@ -4,8 +4,10 @@ import { z } from 'zod';
 import type { LlmConfig } from '../../../config/llm.config.js';
 import { AxiosResponse } from 'axios';
 import { firstValueFrom } from 'rxjs';
+import { cleanHtmlPage } from '../page-cleaner.js';
 
-const MAX_PAGE_CHARS = 100_000_000;
+/** Max size of a downloaded page (raw HTML), not of what the model sees. */
+const MAX_DOWNLOAD_BYTES = 5_000_000;
 const MAX_REDIRECTS = 3;
 
 export function createFetchTrustedDoctorPageTool(
@@ -13,35 +15,41 @@ export function createFetchTrustedDoctorPageTool(
   llmConfig: LlmConfig,
 ) {
   return tool(
-    async ({ url }) => {
-      const response = await requestWhitelistedUrl(
-        httpService,
-        url,
-        llmConfig,
-        {
-          method: 'GET',
-        },
-      );
-      const html = await readResponseBody(response);
+    async ({ url: requestedUrl }) => {
+      const url = resolveTrustedUrl(requestedUrl, llmConfig);
+      const response = await requestWhitelistedUrl(httpService, url, llmConfig, {
+        method: 'GET',
+      });
+      const body = String(response.data ?? '');
 
       if (response.status < 200 || response.status >= 300) {
         throw new Error(
-          `Trusted doctor page request failed with HTTP ${response.status}: ${html.slice(0, 500)}`,
+          `Trusted doctor page request failed with HTTP ${response.status}`,
         );
       }
 
-      const contentType = response.headers['content-type'];
-      return `URL: ${url}\nContent-Type: ${String(contentType ?? 'unknown')}\n\n${html.slice(0, MAX_PAGE_CHARS)}`;
+      const contentType = String(response.headers['content-type'] ?? '');
+      if (!contentType.includes('html')) {
+        return `URL: ${url}\nContent-Type: ${contentType}\n\n${body.slice(0, 4_000)}`;
+      }
+
+      const page = cleanHtmlPage(body, url);
+      return [
+        `URL: ${url}`,
+        `TITLE: ${page.title}`,
+        '',
+        page.text,
+      ].join('\n');
     },
     {
       name: 'fetch_trusted_doctor_page',
       description:
-        'Fetch and inspect an HTML page from a configured trusted doctor website. Use this for plain websites without an API. Start with the trusted source domain, follow links found in the returned HTML, and never invent URLs.',
+        'Fetch a page from a configured trusted doctor website and return its readable text. Links are shown as [text](/path). Pass such a /path (or a full https URL) to fetch the next page. Follow only links that appear in fetched pages; never invent them.',
       schema: z.object({
         url: z
           .string()
           .min(1)
-          .describe('A full HTTPS URL on a configured trusted doctor domain.'),
+          .describe('A /path from a fetched page, or a full HTTPS URL on a trusted doctor domain.'),
       }),
     },
   );
@@ -65,16 +73,19 @@ export async function requestWhitelistedUrl(
     redirectCount += 1
   ) {
     const response = await firstValueFrom(
-      httpService.request({
+      httpService.request<string>({
         url,
         method: init.method,
         headers: init.headers,
         data: init.body,
         timeout: 10_000,
-        maxContentLength: MAX_PAGE_CHARS,
-        maxBodyLength: MAX_PAGE_CHARS,
+        maxContentLength: MAX_DOWNLOAD_BYTES,
+        maxBodyLength: MAX_DOWNLOAD_BYTES,
         maxRedirects: 0,
         responseType: 'text',
+        // Without this, axios throws on every non-2xx status, so redirects
+        // (3xx) and HTTP errors would never reach the handling below.
+        validateStatus: () => true,
       }),
     );
 
@@ -84,36 +95,46 @@ export async function requestWhitelistedUrl(
 
     const location = response.headers.location;
     if (!location) {
-      throw new Error('Whitelisted API returned a redirect without a location');
+      throw new Error('Trusted site returned a redirect without a location');
     }
     if (redirectCount === MAX_REDIRECTS) {
-      throw new Error('Whitelisted API exceeded the redirect limit');
+      throw new Error('Trusted site exceeded the redirect limit');
     }
 
-    url = validateUrl(new URL(location, url).toString(), llmConfig);
+    // Every redirect target is checked against the whitelist again.
+    url = validateUrl(new URL(String(location), url).toString(), llmConfig);
   }
 
-  throw new Error('Whitelisted API request could not be completed');
+  throw new Error('Trusted site request could not be completed');
+}
+
+/**
+ * Turns "/path" (as shown in cleaned pages) into a full URL on the trusted site.
+ * Only possible while exactly one domain is whitelisted; full URLs pass through.
+ */
+export function resolveTrustedUrl(input: string, llmConfig: LlmConfig): string {
+  const value = input.trim();
+  if (!value.startsWith('/')) return value;
+
+  const domains = llmConfig.allowedApiDomains;
+  if (domains.length !== 1) {
+    throw new Error('Use a full https URL: more than one trusted domain is configured');
+  }
+  return new URL(value, `https://${domains[0]}`).toString();
 }
 
 function validateUrl(inputUrl: string, llmConfig: LlmConfig): string {
   const url = new URL(inputUrl);
 
   if (url.protocol !== 'https:') {
-    throw new Error('Only HTTPS API requests are allowed');
+    throw new Error('Only HTTPS requests are allowed');
   }
   if (!llmConfig.allowedApiDomains.includes(url.hostname.toLowerCase())) {
-    throw new Error(`API domain is not Whitelisted: ${url.hostname}`);
+    throw new Error(`Domain is not whitelisted: ${url.hostname}`);
   }
   if (url.username || url.password) {
-    throw new Error('Credentials in API URLs are not allowed');
+    throw new Error('Credentials in URLs are not allowed');
   }
 
   return url.toString();
-}
-
-export async function readResponseBody(
-  response: AxiosResponse<string>,
-): Promise<string> {
-  return response.data;
 }
