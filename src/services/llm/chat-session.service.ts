@@ -1,14 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { LlmConfig } from '../../config/llm.config.js';
 import { randomUUID } from 'node:crypto';
 import { HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages';
 import { DbService } from '../db/db.service.js';
 import { AgentService } from './agent.service.js';
 import type { DoctorResponse } from './doctor-response.js';
+import type { DebugEvent, TokenUsage } from './debug-events.js';
+import type { SearchPlan } from './agent.service.js';
+import { TRIAGE_LEVEL_NAMES, type TriageResult } from './triage/triage.js';
 
 const DEBUG = true;
 export type StreamChunk =
   | string
   | DoctorResponse
+  | DebugEvent
   | { type: 'heartbeat'; timestamp: string }
   | { type: 'error'; message: string };
 
@@ -24,6 +30,7 @@ export class ChatSessionService {
   constructor(
     private dbService: DbService,
     private agentService: AgentService,
+    private config: ConfigService,
   ) {}
 
   public async prepareStream(prompt: string, incomingSessionId?: string) {
@@ -56,7 +63,12 @@ export class ChatSessionService {
     return { streamId, sessionId };
   }
 
-  async *generateStream(streamId: string) {
+
+  //
+  async *generateStream(
+    streamId: string,
+    options: { debug?: boolean } = {},
+  ): AsyncGenerator<StreamChunk> {
     const queueData = this.streamQueue.get(streamId);
 
     if (!queueData) {
@@ -65,8 +77,7 @@ export class ChatSessionService {
       );
       yield {
         type: 'error',
-        message:
-          'Stream session not found or expired. Create a new message and use its returned streamId.',
+        message: this.config.getOrThrow<LlmConfig>('llm').errors.streamNotFound,
       };
       return;
     }
@@ -76,6 +87,22 @@ export class ChatSessionService {
     this.logger.log(
       `[${sessionId}] Starting stream [stream=${streamId}]`,
     );
+
+    const debug = options.debug === true;
+    const streamStartedAt = Date.now();
+    const runStartedAt = new Map<string, number>();
+    let modelCalls = 0;
+    let toolCalls = 0;
+
+    if (debug) {
+      yield {
+        type: 'debug',
+        kind: 'context',
+        sessionId,
+        messages: messages.length,
+        chars: messages.reduce((sum, message) => sum + contentLength(message.content), 0),
+      };
+    }
 
     const eventStream = this.agentService.streamEvents(messages);
     let completeAssistantResponse = '';
@@ -103,6 +130,25 @@ export class ChatSessionService {
         case 'on_chain_end':
           if (!isGraphNodeLifecycle) break;
           this.logger.log(`[${sessionId}] Graph node finished${eventNode}`);
+          if (debug && graphNode === 'triage') {
+            const triage = event.data.output?.triageResult as TriageResult | undefined;
+            if (triage) {
+              yield {
+                type: 'debug',
+                kind: 'triage',
+                level: triage.level,
+                levelName: TRIAGE_LEVEL_NAMES[triage.level],
+                modelLevel: triage.modelLevel,
+                hasSymptoms: triage.hasSymptoms,
+                redFlags: triage.redFlags,
+                reasons: triage.reasons,
+              };
+            }
+          }
+          if (debug && graphNode === 'planSearch') {
+            const plan = event.data.output?.searchPlan as SearchPlan | undefined;
+            if (plan) yield { type: 'debug', kind: 'plan', ...plan };
+          }
           if (graphNode === 'emergency' || graphNode === 'finalize') {
             const response = event.data.output?.response as
               | DoctorResponse
@@ -119,7 +165,9 @@ export class ChatSessionService {
             formatError(event.data.error ?? event.data),
           );
           break;
+
         case 'on_chat_model_start':
+          runStartedAt.set(event.run_id, Date.now());
           this.logger.log(
             `[${sessionId}] Model call started${eventNode}`,
           );
@@ -131,9 +179,8 @@ export class ChatSessionService {
           );
           break;
         case 'on_chat_model_stream': {
-          // These nodes produce JSON for the code, not text for the user.
           if (
-            graphNode === 'checkEmergency' ||
+            graphNode === 'triage' ||
             graphNode === 'planSearch' ||
             graphNode === 'finalize'
           ) {
@@ -141,7 +188,7 @@ export class ChatSessionService {
           }
 
           const content = event.data.chunk?.content;
-          if (!content) break;
+          if (!content || typeof content !== 'string') break;
           completeAssistantResponse += content;
           yield content;
           break;
@@ -149,27 +196,62 @@ export class ChatSessionService {
         case 'on_chat_model_end': {
           const usage = getTokenUsage(event.data.output);
           messageTokenUsage = addTokenUsage(messageTokenUsage, usage);
+          modelCalls += 1;
           this.logger.log(
             `[${sessionId}] Model call finished${eventNode} ` +
               `tokens: input=${usage.input}, output=${usage.output}, total=${usage.total}`,
           );
+          if (debug) {
+            yield {
+              type: 'debug',
+              kind: 'model',
+              node: graphNode ?? 'unknown',
+              tokens: usage,
+              ms: elapsedSince(runStartedAt, event.run_id),
+            };
+          }
           break;
         }
+
         case 'on_tool_start':
+          runStartedAt.set(event.run_id, Date.now());
           this.logger.log(
             `[${sessionId}] Tool call started: ${event.name}(${JSON.stringify(event.data.input)})`,
           );
           break;
-        case 'on_tool_end':
-          this.logger.log(
-            `[${sessionId}] Tool call finished: ${event.name}\n${event.data.output?.content ?? event.data.output}`,
-          );
+        case 'on_tool_end': {
+          toolCalls += 1;
+          const output = event.data.output?.content ?? event.data.output;
+          const outputText = typeof output === 'string' ? output : JSON.stringify(output ?? '');
+          this.logger.log(`[${sessionId}] Tool call finished: ${event.name}\n${outputText}`);
+          if (debug) {
+            yield {
+              type: 'debug',
+              kind: 'tool',
+              name: event.name,
+              args: event.data.input,
+              ms: elapsedSince(runStartedAt, event.run_id),
+              resultChars: outputText.length,
+            };
+          }
           break;
+        }
         case 'on_tool_error':
+          toolCalls += 1;
           this.logger.error(
             `[${sessionId}] Tool error: ${event.name}`,
             formatError(event.data.error ?? event.data),
           );
+          if (debug) {
+            yield {
+              type: 'debug',
+              kind: 'tool',
+              name: event.name,
+              args: event.data.input,
+              ms: elapsedSince(runStartedAt, event.run_id),
+              error: getErrorMessage(event.data.error ?? event.data),
+            };
+          }
           break;
         }
       }
@@ -179,7 +261,7 @@ export class ChatSessionService {
         `[${sessionId}] Agent stream failed: ${message}`,
         error instanceof Error ? error.stack : undefined,
       );
-      yield 'The assistant could not complete this response. Please try again.';
+      yield this.config.getOrThrow<LlmConfig>('llm').fallbackMessages.answerFailed.trim();
     }
 
     this.logger.log(
@@ -214,16 +296,39 @@ export class ChatSessionService {
       yield completeDoctorResponse;
     }
 
+    if (debug) {
+      yield {
+        type: 'debug',
+        kind: 'summary',
+        ms: Date.now() - streamStartedAt,
+        tokens: messageTokenUsage,
+        modelCalls,
+        toolCalls,
+      };
+    }
+
     this.logger.log(`[${sessionId}] Stream completed [stream=${streamId}]`);
   }
 
+  // cli /history
+  public async getHistory(sessionId: string): Promise<{ role: string; content: string }[]> {
+    return (await this.dbService.getSessionHistory(sessionId)) as {
+      role: string;
+      content: string;
+    }[];
+  }
 }
 
-type TokenUsage = {
-  input: number;
-  output: number;
-  total: number;
-};
+
+function elapsedSince(startedAt: Map<string, number>, runId: string): number {
+  const start = startedAt.get(runId);
+  startedAt.delete(runId);
+  return start === undefined ? 0 : Date.now() - start;
+}
+
+function contentLength(content: BaseMessage['content']): number {
+  return typeof content === 'string' ? content.length : JSON.stringify(content).length;
+}
 
 function getTokenUsage(output: any): TokenUsage {
   const usage = output?.usage_metadata ?? output?.response_metadata?.token_usage;
