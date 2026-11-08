@@ -95,7 +95,6 @@ systemPrompts:
     (in their language) to see a doctor today, for example at an emergency
     department (pohotovosť), and to call 112 or 155 if it gets worse.
 
-  # emergency numbers are for Slovakia only
   emergencyResponse: |
     You are responding to a possible medical emergency.
     Reply in the same language as the user's latest message. Be concise and do not diagnose.
@@ -113,21 +112,19 @@ systemPrompts:
     Use null for phone, email or additionalInfo when they are not explicitly available.
     Preserve the user's language in the text answer.
 
-# How the conversation is shown to triage and planSearch (services/llm/transcript.ts).
 transcript:
   earlier: "Earlier messages (context only):"
   latest: "LATEST user message:"
   user: "User"
   assistant: "Assistant"
 
-# Input of the townPicker step (planSearch -> pickTown).
+# planSearch -> pickTown
 townPickerInput: "Towns: {towns}\nThe user wrote: {userTown}"
 
-# Field description in the JSON schema of the final answer (finalize node).
 doctorResponse:
   urlField: "HTTPS URL of the page the doctor was found on"
 
-# The find_doctors tool: its description, and the results it returns to the model.
+# find_doctors tool
 findDoctors:
   description: "Find doctors of one medical speciality in a town of the Košice region (Slovakia), using trusted doctor directories."
   specialityField: 'Slovak speciality name, e.g. "Neurológ", "Všeobecný lekár", "Kardiológ", "Zubár (stomatológ)".'

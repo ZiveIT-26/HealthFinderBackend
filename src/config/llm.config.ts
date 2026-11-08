@@ -4,13 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { registerAs } from '@nestjs/config';
 import { parse } from 'yaml';
 
-/**
- * All texts and settings of the LLM part, from three files in this folder:
- *   llm.config.yaml  doctor websites (allowed domains, sources)
- *   prompts.yaml     everything the model reads (prompts, tool texts)
- *   messages.yaml    everything the user sees that is not written by the model
- * The three are merged into one object; code reads it as `llmConfig.<key>`.
- */
 export type LlmConfig = SourcesConfig & PromptsConfig & MessagesConfig;
 
 // --- llm.config.yaml ---
@@ -37,7 +30,6 @@ type PromptsConfig = {
     responseFormatter: string;
   };
   transcript: TranscriptLabels;
-  /** {towns}, {userTown} */
   townPickerInput: string;
   doctorResponse: {
     urlField: string;
@@ -74,7 +66,6 @@ type MessagesConfig = {
   fallbackMessages: {
     emergency: string;
     answerFailed: string;
-    /** {count} */
     doctorsFound: string;
   };
   errors: {
@@ -87,13 +78,11 @@ type MessagesConfig = {
 
 export type DoctorListTexts = {
   addressMissing: string;
-  /** {specialities} */
   otherSpecialities: string;
 };
 
 const CONFIG_FILES = ['llm.config.yaml', 'prompts.yaml', 'messages.yaml'];
 
-/** Reads and merges the three files. Also used directly by tests and scripts. */
 export function loadLlmConfig(): LlmConfig {
   const folder = fileURLToPath(new URL('.', import.meta.url));
   return Object.assign(

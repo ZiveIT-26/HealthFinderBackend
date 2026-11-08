@@ -4,8 +4,6 @@
 #  - errors
 #  - fixed parts of lists
 
-
-# Fixed texts for when the model cannot answer (Ollama down, error, ...).
 fallbackMessages:
   emergency: |
     Môže ísť o naliehavý stav. Volajte záchranku: 112 alebo 155.
@@ -15,13 +13,11 @@ fallbackMessages:
     The assistant could not complete this response. Please try again.
   doctorsFound: "Lekári / doctors: {count}"
 
-# Errors returned by the API (POST /chat, GET /chat/stream/:id).
 errors:
   messageRequired: "Message is required"
   streamNotFound: "Stream session not found or expired. Create a new message and use its returned streamId."
   streamFailed: "The stream could not be completed. Please try again."
 
-# Fixed parts of each doctor in the list.
 doctorList:
   addressMissing: "Not available"
   otherSpecialities: "Also: {specialities}"

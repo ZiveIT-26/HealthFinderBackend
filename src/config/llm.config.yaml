@@ -1,5 +1,4 @@
-# Doctor websites the backend may talk to.
-# Prompts for the model: prompts.yaml. Texts for the user: messages.yaml.
+# List here the domains llm allowed to talk to
 
 allowedApiDomains:
   - www.zoznam-lekarov.sk
