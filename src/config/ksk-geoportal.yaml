@@ -1,0 +1,146 @@
+# Source: official register of healthcare providers of Košický kraj
+# (geoportalksk.sk, WFS layer ksk_evucsk:poskytovatelia_zs, ~4500 facilities).
+# Used by sources/adapters/ksk-geoportal.adapter.ts.
+#
+# The register has facility types ("druh_zariadenia"), not specialities.
+# This table maps our speciality names (the same Slovak names as on
+# zoznam-lekarov.sk, so both sources agree) to one or more facility types.
+#   type:         exact value of druh_zariadenia
+#   codeIncludes: optional, part of typ_zariadenia_complex_code
+#                 (separates adults "dospeli" from children "deti_a_dorast")
+# Types that are not doctors (labs, hospitals, ambulances, ...) are left out.
+
+kskGeoportal:
+  specialities:
+    Všeobecný lekár:
+      - type: ambulancia všeobecnej ambulantnej zdravotnej starostlivosti
+        codeIncludes: dospeli
+    Detský lekár (pediater):
+      - type: ambulancia všeobecnej ambulantnej zdravotnej starostlivosti
+        codeIncludes: deti_a_dorast
+      - type: pediatrická ambulancia len v nemocnici, v ktorej sa poskytuje ústavná zdravotná starostlivosť najmenej v jednom pediatrickom odbore
+    Zubár (stomatológ):
+      - type: ambulancia zubného lekárstva
+    Gynekológ:
+      - type: gynekologicko-pôrodnícka ambulancia
+    Internista:
+      - type: ambulancia vnútorného lekárstva
+    Psychológ:
+      - type: ambulancia klinickej psychológie
+    Očný lekár (oftalmológ):
+      - type: oftalmologická ambulancia
+    Fyziatria:
+      - type: ambulancia fyziatrie, balneológie a liečebnej rehabilitácie
+    Chirurg:
+      - type: chirurgická ambulancia
+    Ortopéd:
+      - type: ortopedická ambulancia
+    Neurológ:
+      - type: neurologická ambulancia
+    Kožný lekár (dermatológ):
+      - type: dermatovenerologická ambulancia
+    Psychiater:
+      - type: psychiatrická ambulancia
+    Kardiológ:
+      - type: kardiologická ambulancia
+    ORL (ušný, nosný, krčný):
+      - type: otorinolaryngologická ambulancia
+    Urológ:
+      - type: urologická ambulancia
+    Diabetológia:
+      - type: ambulancia diabetológie a porúch látkovej premeny a výživy
+    Alergológ:
+      - type: ambulancia klinickej imunológie a alergológie
+    Čeľustná ortopédia:
+      - type: ambulancia čeľustnej ortopédie
+    Gastroenterológ:
+      - type: gastroenterologická ambulancia
+    Anesteziológ:
+      - type: ambulancia anestéziológie a intenzívnej medicíny len v nemocnici, v ktorej sa poskytuje ústavná zdravotná starostlivosť najmenej v jednom odbore anestéziológia a intenzívna medicína
+    Hematológ:
+      - type: hematologická a transfúziologická ambulancia
+    Endokrinológ:
+      - type: endokrinologická ambulancia
+    Logopéd:
+      - type: ambulancia klinickej logopédie
+    Plastický chirurg:
+      - type: ambulancia plastickej chirurgie
+    Pľúcny lekár (pneumológ):
+      - type: pneumologicko-ftizeologická ambulancia
+    Nefrológ:
+      - type: nefrologická ambulancia
+    Úrazový chirurg:
+      - type: ambulancia úrazovej chirurgie
+    Reumatológ:
+      - type: reumatologická ambulancia
+    Genetik:
+      - type: ambulancia lekárskej genetiky
+    Angiológ:
+      - type: angiologická ambulancia
+    Geriater:
+      - type: geriatrická ambulancia
+    Pracovný lekár:
+      - type: ambulancia pracovného lekárstva
+    Cievny chirurg:
+      - type: ambulancia cievnej chirurgie
+    Onkológ:
+      - type: ambulancia klinickej onkológie
+    Algeziológ:
+      - type: algeziologická ambulancia
+    Detský kardiológ:
+      - type: ambulancia pediatrickej kardiológie
+    Pracovný psychológ:
+      - type: ambulancia pracovnej a organizačnej psychológie
+    Akupunktúra:
+      - type: ambulancia akupunktúry
+    Detský psychiater:
+      - type: ambulancia detskej psychiatrie
+    Detský neurológ:
+      - type: ambulancia pediatrickej neurológie
+    Telovýchovný lekár:
+      - type: ambulancia telovýchovného lekárstva
+    Poradenský psychológ:
+      - type: ambulancia poradenskej psychológie
+    Neurochirurg:
+      - type: ambulancia neurochirurgická
+    Pediatrická gastroenterológia:
+      - type: ambulancia pediatrickej gastroenterológie, hepatológie a výživy
+    Infektológ:
+      - type: infektologická ambulancia
+    Detská gynekológia:
+      - type: ambulancia pediatrickej gynekológie
+    Maxilofaciálna chirurgia:
+      - type: ambulancia maxilofaciálnej chirurgie
+    Detská endokrinológia:
+      - type: ambulancia pediatrickej endokrinológie a diabetológie a porúch látkovej premeny a výživy
+    Detská nefrológia:
+      - type: ambulancia pediatrickej nefrológie
+    Hepatológ:
+      - type: hepatologická ambulancia
+    Detský urológ:
+      - type: ambulancia pediatrickej urológie
+    Detský pneumológ:
+      - type: ambulancia pediatrickej pneumológie a ftizeológie
+    Detský chirurg:
+      - type: ambulancia pediatrickej chirurgie
+    Liečebný pedagóg:
+      - type: ambulancia liečebnej pedagogiky
+    Klinický farmakológ:
+      - type: ambulancia klinickej farmakológie
+    Radiačná onkológia:
+      - type: ambulancia radiačnej onkológie
+    Detská oftalmológia:
+      - type: ambulancia pediatrickej oftalmológie
+    Detská hematológia a onkológia:
+      - type: ambulancia pediatrickej hematológie a onkológie
+    Detská reumatológia:
+      - type: ambulancia pediatrickej reumatológie
+    Hrudníková chirurgia:
+      - type: ambulancia hrudníkovej chirurgie
+    Kardiochirurg:
+      - type: ambulancia kardiochirurgická
+    # Emergency departments (pohotovosť) for adults, children and dentists.
+    Urgentná medicína:
+      - type: ambulancia pevnej ambulantnej pohotovostnej služby pre dospelých
+      - type: ambulancia pevnej ambulantnej pohotovostnej služby pre deti a dorast
+      - type: ambulancia zubno–lekárskej pohotovostnej služby

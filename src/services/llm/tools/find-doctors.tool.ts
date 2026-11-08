@@ -45,9 +45,14 @@ export function createFindDoctorsTool(
           phone: null,
           email: null,
           additionalInfo:
-            others.length > 0
-              ? fillTemplate(doctorList.otherSpecialities, { specialities: others.slice(0, 5).join(', ') })
-              : null,
+            [
+              others.length > 0
+                ? fillTemplate(doctorList.otherSpecialities, { specialities: others.slice(0, 5).join(', ') })
+                : '',
+              doctor.details ?? '',
+            ]
+              .filter(Boolean)
+              .join(' · ') || null,
         };
       });
 

@@ -2,6 +2,8 @@
 
 allowedApiDomains:
   - www.zoznam-lekarov.sk
+  # KSK register of healthcare providers (WFS API), see ksk-geoportal.yaml
+  - www.geoportalksk.sk
 
 trustedDoctorSources:
   - domain: www.zoznam-lekarov.sk

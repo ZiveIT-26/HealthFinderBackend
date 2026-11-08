@@ -21,3 +21,14 @@ errors:
 doctorList:
   addressMissing: "Not available"
   otherSpecialities: "Also: {specialities}"
+  # Shown for doctors from the KSK register (it has opening hours and insurers).
+  openingHours: "Ordinačné hodiny: {hours}"
+  insurers: "Poisťovne: {insurers}"
+  days:
+    pondelok: Po
+    utorok: Ut
+    streda: St
+    stvrtok: Št
+    piatok: Pi
+    sobota: So
+    nedela: Ne

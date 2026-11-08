@@ -30,6 +30,7 @@ import {
   matchTown,
 } from './tools/find-doctors.tool.js';
 import { createDoctorSources } from './sources/index.js';
+import { createWebSearchTool } from './tools/web-search.tool.js';
 import { fillTemplate } from '../../config/template.js';
 import type { TriageResult } from './triage/triage.js';
 import { createTriageStep } from './triage/triage-step.js';
@@ -162,9 +163,17 @@ function createAgentGraph(
 ) {
   const doctorSources = createDoctorSources(httpService, llmConfig);
   const findDoctorsTool = createFindDoctorsTool(doctorSources, llmConfig);
+  // web_search (Tavily) only when TAVILY_API_KEY is set; the agent may use it
+  // for details about one facility (web page, phone), not to find doctors.
+  const webSearchEnabled = tavilyApiKey.trim() !== '';
   const tools = [
-    findDoctorsTool // now only one for sites
+    findDoctorsTool, // all doctor sources (see sources/index.ts)
+    ...(webSearchEnabled ? [createWebSearchTool(tavilyApiKey)] : []),
   ];
+  const assistantPrompt = webSearchEnabled
+    ? `${llmConfig.systemPrompts.assistant}
+${llmConfig.systemPrompts.webSearchNote}`
+    : llmConfig.systemPrompts.assistant;
   const assistantModel = model.bindTools(tools);
   const triage = createTriageStep(triageModel, llmConfig);
   const emergencyModel = model;
@@ -275,7 +284,7 @@ function createAgentGraph(
     .addNode('agent', async ({ messages, triageResult }) => ({
       messages: [
         await assistantModel.invoke([
-          new SystemMessage(llmConfig.systemPrompts.assistant),
+          new SystemMessage(assistantPrompt),
           ...compactOldPages(messages),
           ...(triageResult?.level === 2 ? [new SystemMessage(llmConfig.systemPrompts.urgentNote)] : []),
         ]),
