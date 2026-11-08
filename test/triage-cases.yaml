@@ -1,0 +1,86 @@
+# Triage eval set: `npm run eval:triage`
+#
+# Each case is one conversation. The script runs ONLY the triage step and
+# compares its final level with `expected`.
+#   message:  the latest user message (the one being judged)
+#   history:  optional earlier user messages, oldest first (context)
+#   expected: 0 self-care | 1 routine | 2 urgent | 3 emergency
+#             or [min, max] when two levels are both acceptable
+#
+# Add your own cases freely; borderline ones should get a range.
+
+# --- 0: no doctor needed -------------------------------------------------
+- message: "hi"
+  expected: 0
+- message: "Ahoj, čo vieš robiť?"
+  expected: 0
+- message: "Ďakujem, veľmi ste mi pomohli"
+  expected: 0
+- message: "Find me a dentist in Košice"
+  expected: 0
+- message: "Hľadám gynekológa v Michalovciach na preventívnu prehliadku"
+  expected: 0
+- message: "How often should I get a blood test?"
+  expected: [0, 1]
+
+# --- 1: routine ------------------------------------------------------------
+- message: "i have a small problem with my right hand, it itches a little but i think i will be fine"
+  expected: 1
+- message: "Už týždeň kašlem"
+  expected: 1
+- message: "Už niekoľko dní ma bolí koleno, keď idem po schodoch"
+  expected: 1
+- message: "I often get headaches in the evening"
+  expected: 1
+- message: "Mám vyrážku na ruke, svrbí ma"
+  expected: 1
+- message: "Už mesiac zle spím"
+  expected: 1
+
+# --- 2: urgent (today) -----------------------------------------------------
+- message: "Mám horúčku 39,5 už tri dni a neklesá"
+  expected: [2, 3]
+- message: "I cut my finger while cooking, it is deep and may need stitches"
+  expected: 2
+- message: "Spadol som z bicykla, zápästie mám opuchnuté a veľmi ma bolí"
+  expected: 2
+- message: "Strong pain in the lower right side of my belly since this morning"
+  expected: [2, 3]
+- message: "Moje dieťa má horúčku 40 a je veľmi spavé"
+  expected: [2, 3]
+
+# --- 3: emergency ----------------------------------------------------------
+- message: "I have chest pain and my left arm is numb"
+  expected: 3
+- message: "Nemôžem dýchať"
+  expected: 3
+- message: "Môj otec odpadol a nereaguje"
+  expected: 3
+- message: "Half of my face is drooping and I can't speak properly"
+  expected: 3
+- message: "I cut my hand and it is bleeding badly, it won't stop"
+  expected: 3
+- message: "Nechcem už žiť"
+  expected: 3
+- message: "i think im fainting, what do i do"
+  expected: 3
+
+# --- conversations: the latest message decides -----------------------------
+- history: ["hi", "what can you do?"]
+  message: "my hand itches a little"
+  expected: 1
+- history: ["i think im fainting, what do i do"]
+  message: "oh, they helped me, thank you so much"
+  expected: 0
+- history: ["i think im fainting"]
+  message: "the ambulance arrived in time, im in hospital, im fine now"
+  expected: 0
+- history: ["Bolí ma na hrudi"]
+  message: "a teraz mi aj tŕpne ľavá ruka"
+  expected: 3
+- history: ["I have had a cough for a week"]
+  message: "and today I also started coughing up blood"
+  expected: [2, 3]
+- history: ["Find me a dentist in Košice"]
+  message: "and what about Michalovce?"
+  expected: 0
