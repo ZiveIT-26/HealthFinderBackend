@@ -20,7 +20,8 @@
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
-    "chat": "nest build && node dist/cli/chat-cli.js"
+    "chat": "nest build && node dist/cli/chat-cli.js",
+    "eval:triage": "nest build && node dist/cli/triage-eval.js"
   },
   "dependencies": {
     "@langchain/core": "^1.3.0",
