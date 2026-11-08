@@ -36,8 +36,6 @@ export class DbService implements OnModuleDestroy {
   }
 
   public async getSessionHistory(sessionId: string) {
-    // objectRows: postgrejs returns rows as arrays (["user", "..."]) by default,
-    // but callers read row.role / row.content.
     const result = await this.pool.query(
       'SELECT role, content FROM chat_messages WHERE session_id = $1 ORDER BY created_at ASC',
       { params: [sessionId], objectRows: true },
