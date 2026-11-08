@@ -24,7 +24,7 @@ export function createGetTrustedDoctorSourceInstructionsTool(
     {
       name: 'get_trusted_doctor_source_instructions',
       description:
-        'Get detailed API search instructions for one trusted doctor-search source. This does not perform an API request.',
+        'Get step-by-step search instructions for one trusted doctor-search source. This does not fetch any page.',
       schema: z.object({
         domain: z
           .string()

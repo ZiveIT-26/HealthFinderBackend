@@ -19,7 +19,9 @@
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
-    "test:e2e": "vitest run --config ./vitest.config.e2e.ts"
+    "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "chat": "nest build && node dist/cli/chat-cli.js",
+    "eval:triage": "nest build && node dist/cli/triage-eval.js"
   },
   "dependencies": {
     "@langchain/core": "^1.3.0",
@@ -31,6 +33,7 @@
     "@nestjs/config": "^12.0.1",
     "@nestjs/core": "^12.0.1",
     "@nestjs/platform-express": "^12.0.1",
+    "cheerio": "^1.2.0",
     "openai": "^7.43.0",
     "postgrejs": "^3.14.0",
     "reflect-metadata": "^0.2.2",

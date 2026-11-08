@@ -1,54 +1,26 @@
+# List here the domains llm allowed to talk to
+
 allowedApiDomains:
   - www.zoznam-lekarov.sk
+  - www.geoportalksk.sk
 
 trustedDoctorSources:
   - domain: www.zoznam-lekarov.sk
     description: Slovak directory of doctors and healthcare providers.
     apiInstructions: |
-      This is a plain HTML website, not an API. Start by fetching
-      https://www.zoznam-lekarov.sk/ with fetch_trusted_doctor_page.
-      Inspect the returned HTML links to find the requested speciality, follow
-      the relevant link, then follow location and doctor-detail links. If the
-      user has no location, use Kosice I. Extract doctor details only from
-      fetched pages and use each detail-page URL as the doctor's source URL.
+      This is a plain HTML website. Pages are organised like this:
+        1. https://www.zoznam-lekarov.sk/ lists all specialities as links.
+        2. A speciality page lists regions (kraj), e.g. "Košický kraj".
+        3. A region page lists towns, e.g. "Košice I".
+        4. A town page lists the doctors (name, address, link to detail page).
+      Start with the homepage, follow the link of the requested speciality,
+      then "Košický kraj", then the user's town. If the user gave no town,
+      use "Košice I". Links are shown as [text](/path): pass that /path to
+      fetch_trusted_doctor_page. Only follow links that appear in fetched pages.
+      Use each doctor's detail-page link as the doctor's source URL.
 
-systemPrompts:
-  assistant: |
-    You are a medical assistant that helps users find doctors in Kosice region.
-    Your task is to determine the specialist user requires and then offer variants.
-    For a doctor search, first use find_medical_facility which returns structured response for facility.
-    Next perform web searches to find urls for mentioned facilities, because response would not contain them.
-    Answer concisely. Reply in the same language as the user's latest message.
-    Always use the appropriate trusted-source tool when you have a configured
-    domain and instructions: fetch HTML for a website or request the API for an
-    explicitly documented API.
+defaultLocation:
+  lat: 48.7203
+  lon: 21.2575
 
-  emergencyCheck: |
-    You are a medical emergency triage classifier.
-    Determine whether the user's latest message could describe an immediate, life-threatening
-    medical emergency requiring an ambulance. Classify unclear symptoms as an emergency when
-    they plausibly indicate immediate danger. Do not classify routine doctor-finding requests
-    or past, resolved symptoms as emergencies. Never diagnose the user.
-    Return only the requested structured result.
-
-  emergencyResponse: |
-    You are responding to a possible medical emergency.
-    Reply in the same language as the user's latest message. Be concise and do not diagnose.
-    Clearly tell the user to call an ambulance immediately, using emergency number 112 or
-    155 in Slovakia. Tell them not to wait for a doctor search. Do not search for doctors,
-    ask follow-up questions, or return JSON.
-
-  responseFormatter: |
-    You format the final medical assistant response.
-    Return only one valid JSON object. Do not include reasoning, markdown, or text before or after it.
-    The JSON must have exactly the keys "text" and "doctors".
-    Return a concise text answer and every doctor found in the trusted tool results.
-    Never invent or infer doctor data. Use "Not available" for missing name, speciality,
-    or address values, but every doctor must include a valid source URL from the tool data.
-    Include optional phone, email, and additionalInfo only when explicitly available.
-    Preserve the user's language in the text answer.
-
-  apiRequest: |
-    Make API requests only to the explicitly allowlisted domain.
-    Never request credentials, secrets, internal network addresses, localhost,
-    private IP addresses, or any other domain.
+searchRadiusKm: 10

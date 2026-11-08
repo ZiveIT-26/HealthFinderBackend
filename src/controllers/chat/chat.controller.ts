@@ -21,22 +21,38 @@ import {
   takeUntil,
   timer,
 } from 'rxjs';
+import { ConfigService } from '@nestjs/config';
+import type { LlmConfig } from '../../config/llm.config.js';
 import { ChatSessionService } from '../../services/llm/chat-session.service.js';
+import { parseUserLocation } from '../../services/llm/user-location.js';
 import type { DoctorResponse } from '../../services/llm/doctor-response.js';
 import type { StreamChunk } from '../../services/llm/chat-session.service.js';
 
 @Controller('chat')
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
-  constructor(private readonly chatSessionService: ChatSessionService) {}
+  private readonly errors: LlmConfig['errors'];
+
+  constructor(
+    private readonly chatSessionService: ChatSessionService,
+    config: ConfigService,
+  ) {
+    this.errors = config.getOrThrow<LlmConfig>('llm').errors;
+  }
 
   @Post()
-  async sendMessage(@Body() body: { prompt: string; sessionId?: string }) {
+  async sendMessage(
+    @Body() body: { prompt: string; sessionId?: string; location?: { lat: number; lon: number } },
+  ) {
     if (!body.prompt) {
-      throw new BadRequestException('Message is required');
+      throw new BadRequestException(this.errors.messageRequired);
     }
 
-    return this.chatSessionService.prepareStream(body.prompt, body.sessionId);
+    return this.chatSessionService.prepareStream(
+      body.prompt,
+      body.sessionId,
+      parseUserLocation(body.location),
+    );
   }
 
   @Get('stream/:id')
@@ -92,7 +108,7 @@ export class ChatController {
         return of({
           data: {
             type: 'error',
-            message: 'The stream could not be completed. Please try again.',
+            message: this.errors.streamFailed,
           },
         } as MessageEvent);
       }),
@@ -121,7 +137,10 @@ function toSseData(chunk: StreamChunk): Record<string, unknown> {
     return { text: chunk };
   }
 
-  if ('type' in chunk && (chunk.type === 'heartbeat' || chunk.type === 'error')) {
+  if (
+    'type' in chunk &&
+    (chunk.type === 'heartbeat' || chunk.type === 'error' || chunk.type === 'debug')
+  ) {
     return chunk;
   }
 

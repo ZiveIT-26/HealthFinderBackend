@@ -1,0 +1,34 @@
+# SYSTEM MESSAGES
+# Everything the USER sees that DOES NOT come from the model:
+#  - fallback answers
+#  - errors
+#  - fixed parts of lists
+
+fallbackMessages:
+  emergency: |
+    Môže ísť o naliehavý stav. Volajte záchranku: 112 alebo 155.
+    This may be a medical emergency. Call an ambulance now: 112 or 155.
+  answerFailed: |
+    Odpoveď sa nepodarilo pripraviť, skúste to prosím znova.
+    The assistant could not complete this response. Please try again.
+  doctorsFound: "Lekári / doctors: {count}"
+
+errors:
+  messageRequired: "Message is required"
+  streamNotFound: "Stream session not found or expired. Create a new message and use its returned streamId."
+  streamFailed: "The stream could not be completed. Please try again."
+
+doctorList:
+  addressMissing: "Not available"
+  otherSpecialities: "Also: {specialities}"
+  openingHours: "Ordinačné hodiny: {hours}"
+  insurers: "Poisťovne: {insurers}"
+  distance: "Vzdialenosť: {km} km"
+  days:
+    pondelok: Po
+    utorok: Ut
+    streda: St
+    stvrtok: Št
+    piatok: Pi
+    sobota: So
+    nedela: Ne

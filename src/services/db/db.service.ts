@@ -38,7 +38,7 @@ export class DbService implements OnModuleDestroy {
   public async getSessionHistory(sessionId: string) {
     const result = await this.pool.query(
       'SELECT role, content FROM chat_messages WHERE session_id = $1 ORDER BY created_at ASC',
-      { params: [sessionId] },
+      { params: [sessionId], objectRows: true },
     );
 
     return result.rows;
