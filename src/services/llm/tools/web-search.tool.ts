@@ -4,33 +4,31 @@ import { z } from 'zod';
 
 type SearchHit = { title: string; url: string; content: string };
 
-export function createSearchDoctorsTool(tavilyApiKey: string) {
+export function createWebSearchTool(tavilyApiKey: string) {
   const webSearch = new TavilySearch({ maxResults: 5, tavilyApiKey });
 
   return tool(
-    async ({ specialty }) => {
-      const res = await webSearch.invoke({
-        query: `${specialty} doctor Košice region Slovakia address phone`,
-      });
+    async ({ query }) => {
+      const res = await webSearch.invoke({ query });
 
       if (typeof res === 'string') return res;
 
       const { results = [] } = res as { results?: SearchHit[] };
       if (!results.length)
-        return `No results found for ${specialty} in Košice region.`;
+        return `No results found '${query}'`;
 
       return results
         .map((r) => `${r.title}\n${r.url}\n${r.content}`)
         .join('\n\n');
     },
     {
-      name: 'search_doctors',
+      name: 'web_search',
       description:
-        'Search the web for doctors in the Košice region by specialty.',
+        'Perform a web search',
       schema: z.object({
-        specialty: z
+        query: z
           .string()
-          .describe('The medical specialty (e.g., cardiologist)'),
+          .describe('Query to search'),
       }),
     },
   );
