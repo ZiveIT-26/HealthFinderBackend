@@ -18,10 +18,11 @@ import {
 } from '@langchain/core/messages';
 import { z } from 'zod';
 import type { LlmConfig } from '../../config/llm.config.js';
-import { createFetchTrustedDoctorPageTool } from './tools/fetch-trusted-doctor-page.tool.js';
-// import { createSearchDoctorsTool } from './tools/search-doctors.tool.js';
-import { createGetTrustedDoctorSourceInstructionsTool } from './tools/get-trusted-doctor-source-instructions.tool.js';
-import { createListTrustedDoctorSourcesTool } from './tools/list-trusted-doctor-sources.tool.js';
+// import { createFetchTrustedDoctorPageTool } from './tools/fetch-trusted-doctor-page.tool.js';
+import { createWebSearchTool } from './tools/web-search.tool.js';
+import { createFindMedicalFacilityTool} from './tools/find-medical-facility.tool.js';
+// import { createGetTrustedDoctorSourceInstructionsTool } from './tools/get-trusted-doctor-source-instructions.tool.js';
+// import { createListTrustedDoctorSourcesTool } from './tools/list-trusted-doctor-sources.tool.js';
 import {
   doctorResponseSchema,
   type DoctorResponse,
@@ -58,12 +59,13 @@ function createAgentGraph(
   llmConfig: LlmConfig,
 ) {
   const tools = [
-    // createSearchDoctorsTool(tavilyApiKey),
-    createFetchTrustedDoctorPageTool(httpService, llmConfig),
-    createListTrustedDoctorSourcesTool(llmConfig.trustedDoctorSources),
-    createGetTrustedDoctorSourceInstructionsTool(
-      llmConfig.trustedDoctorSources,
-    ),
+    createWebSearchTool(tavilyApiKey),
+    // createFetchTrustedDoctorPageTool(httpService, llmConfig),
+    // createListTrustedDoctorSourcesTool(llmConfig.trustedDoctorSources),
+    // createGetTrustedDoctorSourceInstructionsTool(
+    //   llmConfig.trustedDoctorSources,
+    // ),
+    createFindMedicalFacilityTool(),
   ];
   const model = new ChatOpenAI({
     model: llm.model,

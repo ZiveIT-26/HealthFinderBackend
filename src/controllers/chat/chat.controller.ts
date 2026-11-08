@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  Get,
   Param,
   Post,
-  Sse,
   BadRequestException,
   Logger,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   catchError,
   defer,
@@ -14,7 +16,6 @@ import {
   from,
   map,
   merge,
-  Observable,
   of,
   Subject,
   takeUntil,
@@ -38,9 +39,18 @@ export class ChatController {
     return this.chatSessionService.prepareStream(body.prompt, body.sessionId);
   }
 
-  @Sse('stream/:id')
-  streamAIResponse(@Param('id') id: string): Observable<MessageEvent> {
-    return defer(() => {
+  @Get('stream/:id')
+  streamAIResponse(
+    @Param('id') id: string,
+    @Res() response: Response,
+  ): void {
+    response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    response.setHeader('Connection', 'keep-alive');
+    response.setHeader('X-Accel-Buffering', 'no');
+    response.flushHeaders();
+
+    const stream = defer(() => {
       this.logger.log(`[ChatController] Opening stream ${id}`);
       return from(this.chatSessionService.generateStream(id));
     }).pipe(
@@ -87,6 +97,22 @@ export class ChatController {
         } as MessageEvent);
       }),
     );
+
+    const subscription = stream.subscribe({
+    next: (event) => {
+      response.write(`data: ${JSON.stringify(event.data)}\n\n`);
+    },
+    error: (error: unknown) => {
+      this.logger.error(
+        `[ChatController] Stream failed ${id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      response.end();
+    },
+    complete: () => response.end(),
+    });
+
+    response.on('close', () => subscription.unsubscribe());
   }
 }
 
