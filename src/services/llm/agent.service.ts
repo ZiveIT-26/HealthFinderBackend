@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
-import { ChatOpenAI } from '@langchain/openai';
+import type { ChatOpenAI } from '@langchain/openai';
 import {
   Annotation,
   StateGraph,
@@ -21,44 +21,31 @@ import {
 import { z } from 'zod';
 import type { LlmConfig } from '../../config/llm.config.js';
 import { resolveTrustedUrl } from './tools/fetch-trusted-doctor-page.tool.js';
-// Previous approach: the model walked the website page by page with these tools.
-// Small local models got lost or looped, so find_doctors walks the site in code instead.
-// import { createFetchTrustedDoctorPageTool } from './tools/fetch-trusted-doctor-page.tool.js';
-// import { createSearchDoctorsTool } from './tools/search-doctors.tool.js';
-// import { createGetTrustedDoctorSourceInstructionsTool } from './tools/get-trusted-doctor-source-instructions.tool.js';
-// import { createListTrustedDoctorSourcesTool } from './tools/list-trusted-doctor-sources.tool.js';
 import {
   createFindDoctorsTool,
   FIND_DOCTORS_TOOL,
   type FindDoctorsArtifact,
+  findSpecialities,
+  findTowns,
+  matchTown,
 } from './tools/find-doctors.tool.js';
-import { ZoznamLekarovClient } from './sources/zoznam-lekarov.client.js';
+import { createDoctorSources } from './sources/index.js';
+import { fillTemplate } from '../../config/template.js';
+import type { TriageResult } from './triage/triage.js';
+import { createTriageStep } from './triage/triage-step.js';
+import { conversationTranscript, messageText } from './transcript.js';
+import { createChatModel, readLlmSettings, readTriageLlmSettings } from './llm-model.js';
 import {
-  doctorResponseSchema,
+  doctorResponseSchemaForModel,
   type DoctorResponse,
 } from './doctor-response.js';
 
-const EMERGENCY_CONFIDENCE_THRESHOLD = 0.7;
-/** Loop guard: after this many tool rounds the graph goes to `finalize`. */
+
 const MAX_TOOL_ROUNDS = 4;
 const agentLogger = new Logger('AgentGraph');
 
-/** Message content can be a string or an array of parts; join the text parts. */
-function messageText(message: BaseMessage): string {
-  const { content } = message;
-  if (typeof content === 'string') return content;
-  return content
-    .map((part) => (typeof part === 'string' ? part : 'text' in part ? String(part.text) : ''))
-    .join('');
-}
-
 const FETCH_PAGE_TOOL = 'fetch_trusted_doctor_page';
 
-/**
- * Every fetched page stays in the message history, so each next model call
- * would re-send all of them. Keep only the latest page in full and replace
- * older ones with their first line ("URL: ..."). Saves most of the context.
- */
 function compactOldPages(messages: BaseMessage[]): BaseMessage[] {
   const isPage = (message: BaseMessage): message is ToolMessage =>
     message instanceof ToolMessage && message.name === FETCH_PAGE_TOOL;
@@ -76,7 +63,6 @@ function compactOldPages(messages: BaseMessage[]): BaseMessage[] {
   });
 }
 
-/** Doctors returned by the last successful find_doctors call, if any. */
 function lastFoundDoctors(messages: BaseMessage[]): FindDoctorsArtifact | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -87,7 +73,6 @@ function lastFoundDoctors(messages: BaseMessage[]): FindDoctorsArtifact | undefi
   return undefined;
 }
 
-/** Last assistant message that has actual text (not just a tool call). */
 function lastAssistantText(messages: BaseMessage[]): string | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -99,10 +84,6 @@ function lastAssistantText(messages: BaseMessage[]): string | undefined {
   return undefined;
 }
 
-/**
- * When the loop guard stops the agent, its last message still asks for tool calls
- * that were never executed. OpenAI-compatible APIs reject such a history, so drop it.
- */
 function withoutDanglingToolCalls(messages: BaseMessage[]): BaseMessage[] {
   const last = messages[messages.length - 1];
   return last instanceof AIMessage && (last.tool_calls?.length ?? 0) > 0
@@ -126,42 +107,37 @@ function isHttpsUrl(value: string): boolean {
   }
 }
 
-/**
- * Small models often say "I am searching..." without actually calling the tool.
- * So a structured-output step (reliable, like checkEmergency) decides whether to
- * search, and code runs find_doctors before the agent writes the answer.
- */
-const searchPlanSchema = z.object({
-  wantsDoctor: z.boolean(),
-  speciality: z.string().nullable(),
-  town: z.string().nullable(),
-});
 
-/** Last few user/assistant text messages as plain text for the planner. */
-function conversationTranscript(messages: BaseMessage[]): string {
-  return messages
-    .filter(
-      (message) =>
-        message instanceof HumanMessage ||
-        (message instanceof AIMessage && messageText(message).trim() !== ''),
-    )
-    .slice(-6)
-    .map((message) =>
-      `${message instanceof HumanMessage ? 'User' : 'Assistant'}: ${messageText(message)}`,
-    )
-    .join('\n');
+
+export type SearchPlan = {
+  wantsDoctor: boolean;
+  speciality: string | null;
+  town: string | null;
+};
+
+function searchPlanSchema(specialityNames: string[]) {
+  return z.object({
+    wantsDoctor: z.boolean(),
+    speciality: z.enum(specialityNames as [string, ...string[]]).nullable(),
+    town: z.string().nullable(),
+  });
 }
 
-const checkEmergencySchema = z.object({
-  isEmergency: z.boolean(),
-  confidence: z.number().min(0).max(1),
-});
+function townPickSchema(townNames: string[]) {
+  return z.object({
+    town: z.enum(townNames as [string, ...string[]]).nullable(),
+  });
+}
 
 const AgentState = Annotation.Root({
   ...MessagesAnnotation.spec,
-  isEmergency: Annotation<boolean>({
+  triageResult: Annotation<TriageResult | undefined>({
     reducer: (_, update) => update,
-    default: () => false,
+    default: () => undefined,
+  }),
+  searchPlan: Annotation<SearchPlan | undefined>({
+    reducer: (_, update) => update,
+    default: () => undefined,
   }),
   response: Annotation<DoctorResponse | undefined>({
     reducer: (_, update) => update,
@@ -177,90 +153,49 @@ const AgentState = Annotation.Root({
   }),
 });
 
-type LlmSettings = {
-  apiKey: string;
-  baseURL?: string;
-  model: string;
-  /** e.g. "none" turns off thinking for Ollama thinking models (bonsai, qwen3.5). */
-  reasoningEffort?: string;
-};
-
 function createAgentGraph(
-  llm: LlmSettings,
+  model: ChatOpenAI,
+  triageModel: ChatOpenAI,
   tavilyApiKey: string,
   httpService: HttpService,
   llmConfig: LlmConfig,
 ) {
-  const findDoctorsTool = createFindDoctorsTool(
-    new ZoznamLekarovClient(httpService, llmConfig),
-  );
+  const doctorSources = createDoctorSources(httpService, llmConfig);
+  const findDoctorsTool = createFindDoctorsTool(doctorSources, llmConfig);
   const tools = [
-    findDoctorsTool,
-    // createSearchDoctorsTool(tavilyApiKey),
-    // createFetchTrustedDoctorPageTool(httpService, llmConfig),
-    // createListTrustedDoctorSourcesTool(llmConfig.trustedDoctorSources),
-    // createGetTrustedDoctorSourceInstructionsTool(llmConfig.trustedDoctorSources),
+    findDoctorsTool // now only one for sites
   ];
-  const model = new ChatOpenAI({
-    model: llm.model,
-    temperature: 0,
-    apiKey: llm.apiKey,
-    configuration: llm.baseURL ? { baseURL: llm.baseURL } : undefined,
-    modelKwargs: llm.reasoningEffort
-      ? { reasoning_effort: llm.reasoningEffort }
-      : undefined,
-  });
   const assistantModel = model.bindTools(tools);
-  const checkEmergencyModel = model.withStructuredOutput(checkEmergencySchema, {
-    method: 'jsonSchema',
-    strict: true,
-  });
+  const triage = createTriageStep(triageModel, llmConfig);
   const emergencyModel = model;
-  // jsonSchema: Ollama constrains generation to valid JSON (same as checkEmergency).
-  // functionCalling was unreliable with small local models.
-  const responseModel = model.withStructuredOutput(doctorResponseSchema, {
-    method: 'jsonSchema',
-    strict: true,
-  });
-  const planModel = model.withStructuredOutput(searchPlanSchema, {
+
+  const responseModel = model.withStructuredOutput(doctorResponseSchemaForModel(llmConfig.doctorResponse), {
     method: 'jsonSchema',
     strict: true,
   });
   const toolNode = new ToolNode(tools);
 
-  return new StateGraph(AgentState)
-    .addNode('checkEmergency', async ({ messages }) => {
-      const latestMessage = [...messages]
-        .reverse()
-        .find(
-          (message): message is HumanMessage => message instanceof HumanMessage,
-        );
 
-      if (!latestMessage) {
-        return { isEmergency: false };
-      }
+  // exact town name from the website
+  async function pickTown(specialityName: string, userTown: string): Promise<string> {
+    const towns = await findTowns(doctorSources, specialityName); // cached, find_doctors reuses it
+    if (towns.length === 0) return userTown;
+    const direct = matchTown(userTown, towns);
+    if (direct) return direct.name;
 
-      const result = await checkEmergencyModel.invoke([
-        new SystemMessage(llmConfig.systemPrompts.emergencyCheck),
-        latestMessage,
+    const names = towns.map((town) => town.name);
+    const { town } = await model
+      .withStructuredOutput(townPickSchema(names), { method: 'jsonSchema', strict: true })
+      .invoke([
+        new SystemMessage(llmConfig.systemPrompts.townPicker),
+        new HumanMessage(fillTemplate(llmConfig.townPickerInput, { towns: names.join(', '), userTown })),
       ]);
-      const routedToEmergency =
-        result.isEmergency &&
-        result.confidence >= EMERGENCY_CONFIDENCE_THRESHOLD;
+    agentLogger.log(`pickTown: "${userTown}" -> ${town ?? 'none'}`);
+    return town ?? userTown;
+  }
 
-      agentLogger.log(
-        `checkEmergency result: ${JSON.stringify({
-          isEmergency: result.isEmergency,
-          confidence: result.confidence,
-          threshold: EMERGENCY_CONFIDENCE_THRESHOLD,
-          routedToEmergency,
-        })}`,
-      );
-
-      return {
-        isEmergency: routedToEmergency,
-      };
-    })
+  return new StateGraph(AgentState)
+    .addNode('triage', async ({ messages }) => ({ triageResult: await triage(messages) }))
     .addNode('emergency', async ({ messages }) => {
       const latestMessage = [...messages]
         .reverse()
@@ -268,21 +203,19 @@ function createAgentGraph(
           (message): message is HumanMessage => message instanceof HumanMessage,
         );
 
-      if (!latestMessage) {
-        return {
-          messages: [
-            new AIMessage(
-              'This may be a medical emergency. Call an ambulance now: 112 or 155 in Slovakia.',
-            ),
-          ],
-        };
+      let text = '';
+      if (latestMessage) {
+        try {
+          const response = await emergencyModel.invoke([
+            new SystemMessage(llmConfig.systemPrompts.emergencyResponse),
+            latestMessage,
+          ]);
+          text = messageText(response).trim();
+        } catch (error) {
+          agentLogger.error(`emergency: model call failed, using fixed text: ${String(error)}`);
+        }
       }
-
-      const response = await emergencyModel.invoke([
-        new SystemMessage(llmConfig.systemPrompts.emergencyResponse),
-        latestMessage,
-      ]);
-      const text = messageText(response);
+      if (!text) text = llmConfig.fallbackMessages.emergency.trim();
 
       return {
         messages: [new AIMessage(text)],
@@ -290,22 +223,36 @@ function createAgentGraph(
       };
     })
     .addNode('planSearch', async ({ messages }) => {
-      let plan: z.infer<typeof searchPlanSchema>;
+      // speciality names from all doctor sites (cached), if sites down - skip
+      const specialityNames = await findSpecialities(doctorSources);
+      if (specialityNames.length === 0) {
+        agentLogger.warn('planSearch: no specialities from any doctor source, agent decides alone');
+        return {};
+      }
+
+      let plan: SearchPlan;
       try {
-        plan = await planModel.invoke([
-          new SystemMessage(llmConfig.systemPrompts.searchPlanner),
-          new HumanMessage(conversationTranscript(messages)),
-        ]);
+        plan = await model
+          .withStructuredOutput(searchPlanSchema(specialityNames), {
+            method: 'jsonSchema',
+            strict: true,
+          })
+          .invoke([
+            new SystemMessage(llmConfig.systemPrompts.searchPlanner),
+            new HumanMessage(conversationTranscript(messages, llmConfig.transcript)),
+          ]);
+
+        if (plan.wantsDoctor && plan.speciality && plan.town) {
+          plan = { ...plan, town: await pickTown(plan.speciality, plan.town) };
+        }
       } catch (error) {
         agentLogger.warn(`planSearch failed, agent decides alone: ${String(error)}`);
         return {};
       }
       agentLogger.log(`planSearch result: ${JSON.stringify(plan)}`);
 
-      if (!plan.wantsDoctor || !plan.speciality) return {};
+      if (!plan.wantsDoctor || !plan.speciality) return { searchPlan: plan };
 
-      // Same shape as if the model had called the tool itself, so the agent
-      // sees a normal tool call + result in the history.
       const toolCall = {
         id: `plan_${randomUUID()}`,
         name: FIND_DOCTORS_TOOL,
@@ -315,20 +262,22 @@ function createAgentGraph(
       try {
         const toolMessage = (await findDoctorsTool.invoke(toolCall)) as ToolMessage;
         return {
+          searchPlan: plan,
           messages: [new AIMessage({ content: '', tool_calls: [toolCall] }), toolMessage],
           toolsUsed: true,
           toolRounds: 1,
         };
       } catch (error) {
         agentLogger.warn(`planSearch: find_doctors failed: ${String(error)}`);
-        return {};
+        return { searchPlan: plan };
       }
     })
-    .addNode('agent', async ({ messages }) => ({
+    .addNode('agent', async ({ messages, triageResult }) => ({
       messages: [
         await assistantModel.invoke([
           new SystemMessage(llmConfig.systemPrompts.assistant),
           ...compactOldPages(messages),
+          ...(triageResult?.level === 2 ? [new SystemMessage(llmConfig.systemPrompts.urgentNote)] : []),
         ]),
       ],
     }))
@@ -341,15 +290,16 @@ function createAgentGraph(
       const history = withoutDanglingToolCalls(messages);
       let response: DoctorResponse | undefined;
 
-      // Doctors found by find_doctors come straight from the website parser:
-      // no extra LLM call, nothing the model could invent or alter.
       const found = lastFoundDoctors(history);
       if (found) {
         response = {
-          text: lastAssistantText(history) ?? `Found ${found.doctors.length} doctors.`,
+          text:
+            lastAssistantText(history) ??
+            fillTemplate(llmConfig.fallbackMessages.doctorsFound, { count: found.doctors.length }),
           doctors: found.doctors,
         };
-      } else {
+      }
+      else {
         try {
           response = await responseModel.invoke([
             new SystemMessage(llmConfig.systemPrompts.responseFormatter),
@@ -361,13 +311,11 @@ function createAgentGraph(
       }
 
       if (!response) {
-        const text = lastAssistantText(history) || 'Failed to load the answer.';
+        const text = lastAssistantText(history) || llmConfig.fallbackMessages.answerFailed.trim();
         agentLogger.warn('finalize: no structured output, using last agent message');
         response = { text, doctors: [] };
       }
 
-      // Pages show same-site links as "/path": turn them back into full URLs,
-      // then drop doctors without a real https source URL instead of failing the whole answer.
       const validDoctors = response.doctors
         .map((doctor) => ({ ...doctor, url: safeResolveTrustedUrl(doctor.url, llmConfig) }))
         .filter((doctor) => isHttpsUrl(doctor.url));
@@ -383,9 +331,10 @@ function createAgentGraph(
         messages: [new AIMessage(response.text)],
       };
     })
-    .addEdge(START, 'checkEmergency')
-    .addConditionalEdges('checkEmergency', ({ isEmergency }) =>
-      isEmergency ? 'emergency' : 'planSearch',
+
+    .addEdge(START, 'triage')
+    .addConditionalEdges('triage', ({ triageResult }) =>
+      triageResult && triageResult.level >= 3 ? 'emergency' : 'planSearch',
     )
     .addEdge('emergency', END)
     .addEdge('planSearch', 'agent')
@@ -404,6 +353,10 @@ function createAgentGraph(
     .addEdge('tools', 'agent')
     .addEdge('finalize', END)
     .compile();
+
+  // possible outcomes:
+  // default    // START -> triage -> planSearch -> agent -> tools (-> agent -> ...) -> finalize -> END
+  // emergency  // START -> triage -> emergency -> END
 }
 
 @Injectable()
@@ -414,32 +367,13 @@ export class AgentService {
     config: ConfigService,
     private readonly httpService: HttpService,
   ) {
-    const openAiApiKey = config.get<string>('OPENAI_API_KEY')?.trim();
-    let llm: LlmSettings;
-
-    if (openAiApiKey) {
-      llm = {
-        apiKey: openAiApiKey,
-        model: 'gpt-4o',
-      };
-    } else {
-      const baseURL = config.get<string>('LLM_BASE_URL')?.trim();
-      const model = config.get<string>('LLM_MODEL')?.trim();
-
-      if (!model || !baseURL) {
-        throw new Error(
-          'LLM_MODEL and LLM_BASE_URL must be set when OPENAI_API_KEY is not configured',
-        );
-      }
-
-      const reasoningEffort =
-        config.get<string>('LLM_REASONING_EFFORT')?.trim() || undefined;
-
-      llm = { apiKey: 'ollama', baseURL, model, reasoningEffort };
-    }
+    const main = readLlmSettings(config);
+    const triage = readTriageLlmSettings(config);
+    agentLogger.log(`models: ${main.model}, triage: ${triage.model}`);
 
     this.graph = createAgentGraph(
-      llm,
+      createChatModel(main),
+      createChatModel(triage),
       config.getOrThrow<string>('TAVILY_API_KEY'),
       this.httpService,
       config.getOrThrow<LlmConfig>('llm'),
