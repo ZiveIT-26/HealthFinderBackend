@@ -1,6 +1,13 @@
 import { loadLlmConfig } from '../../../config/llm.config.js';
 import type { DoctorSource } from '../sources/index.js';
-import { matchSpeciality, matchTown, normalize, searchSources, withoutDuplicates } from './find-doctors.tool.js';
+import {
+  findSpecialities,
+  matchSpeciality,
+  matchTown,
+  normalize,
+  searchSources,
+  withoutDuplicates,
+} from './find-doctors.tool.js';
 
 const specialities = [
   { name: 'Zubár (stomatológ)', id: 'zubar-stomatolog', count: 2919 },
@@ -118,5 +125,24 @@ describe('withoutDuplicates', () => {
     const sameOnOtherSite = { ...doctor, name: 'MUDR. JAN KOVAC', url: 'https://b/7' };
     const otherAddress = { ...doctor, address: 'Mlynská 2, Košice', url: 'https://a/2' };
     expect(withoutDuplicates([doctor, sameOnOtherSite, otherAddress])).toEqual([doctor, otherAddress]);
+  });
+});
+
+describe('findSpecialities', () => {
+  const source = (name: string, names: string[]): DoctorSource => ({
+    name,
+    getSpecialities: async () => names.map((n) => ({ name: n, id: n, count: 0 })),
+    getTowns: async () => [],
+    getDoctors: async () => [],
+  });
+
+  it('combines names from all sources, each once, and skips a failing source', async () => {
+    const down: DoctorSource = { ...source('down', []), getSpecialities: () => Promise.reject(new Error('down')) };
+    const names = await findSpecialities([
+      down,
+      source('first', ['Neurológ', 'Kardiológ']),
+      source('second', ['neurolog', 'Ortopéd']),
+    ]);
+    expect(names).toEqual(['Neurológ', 'Kardiológ', 'Ortopéd']);
   });
 });

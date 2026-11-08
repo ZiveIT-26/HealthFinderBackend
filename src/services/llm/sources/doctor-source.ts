@@ -3,12 +3,13 @@
  * implements this interface, so adapters are interchangeable: find_doctors does
  * not know which site it talks to.
  *
- * Adapters are listed in sources/index.ts and tried one by one, in that order,
- * until one of them returns doctors.
+ * Adapters are listed in sources/index.ts. find_doctors asks all of them at the
+ * same time and combines their doctors (duplicates removed, first source first).
  *
- * Speciality names: the FIRST source defines the official list (the model picks
- * from it). Other sources should return the same Slovak names, or map their own
- * names to them inside the adapter.
+ * Speciality names: the model picks from the names of all sources together
+ * (findSpecialities). Sources should use the same Slovak names (e.g. "Neurológ"),
+ * or map their own names to them inside the adapter, so one speciality is not
+ * listed twice under different names.
  */
 // ill better leave this comment here
 export interface DoctorSource {

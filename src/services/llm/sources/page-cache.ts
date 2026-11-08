@@ -9,12 +9,13 @@ import { createHash } from 'node:crypto';
  *      server sends the page again   -> compare content hash:
  *          same hash                 -> keep, restart TTL               ("unchanged")
  *          different hash            -> replace                         ("changed")
+ *      the request fails (site down) -> serve the old copy, retry next time ("stale")
  *  - never seen before               -> fetch and store                 ("new")
  *
  * It is shared by all users of this backend process (the pages are public data).
  */
 
-export type CacheOutcome = 'fresh' | 'not-modified' | 'unchanged' | 'changed' | 'new';
+export type CacheOutcome = 'fresh' | 'not-modified' | 'unchanged' | 'changed' | 'new' | 'stale';
 
 export type FetchedPage = {
   status: number;
@@ -51,7 +52,15 @@ export class PageCache {
     if (cached?.etag) conditionalHeaders['If-None-Match'] = cached.etag;
     if (cached?.lastModified) conditionalHeaders['If-Modified-Since'] = cached.lastModified;
 
-    const page = await fetcher(conditionalHeaders);
+    let page: FetchedPage;
+    try {
+      page = await fetcher(conditionalHeaders);
+    } catch (error) {
+      // An old copy is better than nothing (e.g. the list of specialities).
+      // fetchedAt stays old, so the next request tries the site again.
+      if (cached) return { body: cached.body, outcome: 'stale' };
+      throw error;
+    }
 
     if (page.status === 304 && cached) {
       cached.fetchedAt = this.now();

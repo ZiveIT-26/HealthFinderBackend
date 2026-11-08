@@ -222,6 +222,23 @@ export async function findTowns(sources: DoctorSource[], specialityName: string)
   return [...byName.values()];
 }
 
+export async function findSpecialities(sources: DoctorSource[]): Promise<string[]> {
+  const perSource = await Promise.allSettled(sources.map((source) => source.getSpecialities()));
+
+  const byName = new Map<string, string>();
+  perSource.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      logger.warn(`${sources[index].name}: specialities failed: ${String(result.reason)}`);
+      return;
+    }
+    for (const speciality of result.value) {
+      const key = normalize(speciality.name);
+      if (!byName.has(key)) byName.set(key, speciality.name);
+    }
+  });
+  return [...byName.values()];
+}
+
 export function normalize(value: string): string {
   return value
     .normalize('NFD')

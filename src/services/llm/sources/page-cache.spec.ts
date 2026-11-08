@@ -46,6 +46,27 @@ describe('PageCache', () => {
       outcome: 'changed',
     });
   });
+
+  it('serves the old copy when the site fails after TTL, and retries next time', async () => {
+    const pages = cache();
+    await pages.get('u', async () => ({ status: 200, body: 'A' }));
+
+    now = 2000;
+    const down = vi.fn(async (): Promise<FetchedPage> => {
+      throw new Error('site down');
+    });
+    expect(await pages.get('u', down)).toEqual({ body: 'A', outcome: 'stale' });
+    expect(await pages.get('u', down)).toEqual({ body: 'A', outcome: 'stale' });
+    expect(down).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws when the site fails and there is no old copy', async () => {
+    await expect(
+      cache().get('u', async () => {
+        throw new Error('site down');
+      }),
+    ).rejects.toThrow('site down');
+  });
 });
 
 describe('cleanAddress', () => {

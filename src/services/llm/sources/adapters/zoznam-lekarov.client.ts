@@ -1,10 +1,10 @@
 import * as cheerio from 'cheerio';
 import { Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
-import type { LlmConfig } from '../../../config/llm.config.js';
-import { requestWhitelistedUrl } from '../tools/fetch-trusted-doctor-page.tool.js';
-import type { DoctorListing, DoctorSource, Speciality, Town } from './doctor-source.js';
-import { PageCache } from './page-cache.js';
+import type { LlmConfig } from '../../../../config/llm.config.js';
+import { requestWhitelistedUrl } from '../../tools/fetch-trusted-doctor-page.tool.js';
+import type { DoctorListing, DoctorSource, Speciality, Town } from '../doctor-source.js';
+import { PageCache } from '../page-cache.js';
 
 export const ZOZNAM_LEKAROV_ORIGIN = 'https://www.zoznam-lekarov.sk';
 const REGION_SLUG = 'kosicky-kraj';
@@ -66,7 +66,6 @@ export class ZoznamLekarovClient implements DoctorSource {
     return towns;
   }
 
-  // The town id is already the page of this speciality in this town.
   async getDoctors(_speciality: Speciality, town: Town): Promise<DoctorListing[]> {
     const $ = cheerio.load(await this.getHtml(town.id, { notFoundAsEmpty: true }));
     const doctors: DoctorListing[] = [];
@@ -121,7 +120,9 @@ export class ZoznamLekarovClient implements DoctorSource {
       };
     });
 
-    if (outcome !== 'fresh') {
+    if (outcome === 'stale') {
+      this.logger.warn(`site did not answer, using the old copy: ${url}`);
+    } else if (outcome !== 'fresh') {
       this.logger.log(`page ${outcome}: ${url}`);
     }
     return body;
@@ -136,7 +137,7 @@ function clean(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-// the site sometimes prints a missing street as "null": "null, Košice I, 040 15".
+// the site sometimes prints a missing street as "null": "null, Košice I, 040 15"
 export function cleanAddress(value: string): string {
   return clean(value)
     .split(',')
