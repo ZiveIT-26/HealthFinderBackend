@@ -24,6 +24,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import type { LlmConfig } from '../../config/llm.config.js';
 import { ChatSessionService } from '../../services/llm/chat-session.service.js';
+import { parseUserLocation } from '../../services/llm/user-location.js';
 import type { DoctorResponse } from '../../services/llm/doctor-response.js';
 import type { StreamChunk } from '../../services/llm/chat-session.service.js';
 
@@ -40,12 +41,18 @@ export class ChatController {
   }
 
   @Post()
-  async sendMessage(@Body() body: { prompt: string; sessionId?: string }) {
+  async sendMessage(
+    @Body() body: { prompt: string; sessionId?: string; location?: { lat: number; lon: number } },
+  ) {
     if (!body.prompt) {
       throw new BadRequestException(this.errors.messageRequired);
     }
 
-    return this.chatSessionService.prepareStream(body.prompt, body.sessionId);
+    return this.chatSessionService.prepareStream(
+      body.prompt,
+      body.sessionId,
+      parseUserLocation(body.location),
+    );
   }
 
   @Get('stream/:id')

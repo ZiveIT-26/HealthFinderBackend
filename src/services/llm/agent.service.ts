@@ -11,6 +11,7 @@ import {
   END,
 } from '@langchain/langgraph';
 import { ToolNode } from '@langchain/langgraph/prebuilt';
+import type { ToolCall } from '@langchain/core/messages/tool';
 import {
   AIMessage,
   BaseMessage,
@@ -30,12 +31,20 @@ import {
   matchTown,
 } from './tools/find-doctors.tool.js';
 import { createDoctorSources } from './sources/index.js';
+import { createFindMedicalFacilityTool } from './tools/find-medical-facility.tool.js';
 import { createWebSearchTool } from './tools/web-search.tool.js';
+import {
+  createFacilityToolForModel,
+  FIND_MEDICAL_FACILITY_TOOL,
+  searchFacilities,
+} from './tools/facility-result.js';
 import { fillTemplate } from '../../config/template.js';
 import type { TriageResult } from './triage/triage.js';
 import { createTriageStep } from './triage/triage-step.js';
 import { conversationTranscript, messageText } from './transcript.js';
 import { createChatModel, readLlmSettings, readTriageLlmSettings } from './llm-model.js';
+import type { UserLocation } from './user-location.js';
+import { withoutSameDoctors } from './same-doctor.js';
 import {
   doctorResponseSchemaForModel,
   type DoctorResponse,
@@ -64,14 +73,26 @@ function compactOldPages(messages: BaseMessage[]): BaseMessage[] {
   });
 }
 
-function lastFoundDoctors(messages: BaseMessage[]): FindDoctorsArtifact | undefined {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message instanceof ToolMessage && message.name === FIND_DOCTORS_TOOL && message.artifact) {
-      return message.artifact as FindDoctorsArtifact;
-    }
-  }
-  return undefined;
+const MAX_DOCTORS_IN_ANSWER = 20;
+const DOCTOR_TOOLS = [FIND_MEDICAL_FACILITY_TOOL, FIND_DOCTORS_TOOL];
+
+function foundDoctors(messages: BaseMessage[]): FindDoctorsArtifact | undefined {
+  const sinceLastQuestion = messages.slice(
+    messages.findLastIndex((message) => message instanceof HumanMessage) + 1,
+  );
+  const artifacts = DOCTOR_TOOLS.flatMap((name) =>
+    sinceLastQuestion
+      .filter((m): m is ToolMessage => m instanceof ToolMessage && m.name === name && Boolean(m.artifact))
+      .map((m) => m.artifact as FindDoctorsArtifact),
+  );
+  if (artifacts.length === 0) return undefined;
+
+  // The register and zoznam-lekarov.sk often list the same doctor; keep the register's.
+  const doctors = withoutSameDoctors(artifacts.flatMap((artifact) => artifact.doctors)).slice(
+    0,
+    MAX_DOCTORS_IN_ANSWER,
+  );
+  return { doctors, sourceUrls: artifacts.flatMap((artifact) => artifact.sourceUrls) };
 }
 
 function lastAssistantText(messages: BaseMessage[]): string | undefined {
@@ -140,6 +161,15 @@ const AgentState = Annotation.Root({
     reducer: (_, update) => update,
     default: () => undefined,
   }),
+  /** The last doctor search of this session (speciality, town), for follow-ups. */
+  previousSearch: Annotation<SearchPlan | undefined>({
+    reducer: (_, update) => update,
+    default: () => undefined,
+  }),
+  userLocation: Annotation<UserLocation | undefined>({
+    reducer: (_, update) => update,
+    default: () => undefined,
+  }),
   response: Annotation<DoctorResponse | undefined>({
     reducer: (_, update) => update,
     default: () => undefined,
@@ -163,16 +193,21 @@ function createAgentGraph(
 ) {
   const doctorSources = createDoctorSources(httpService, llmConfig);
   const findDoctorsTool = createFindDoctorsTool(doctorSources, llmConfig);
-  // web_search (Tavily) only when TAVILY_API_KEY is set; the agent may use it
-  // for details about one facility (web page, phone), not to find doctors.
+  const findMedicalFacilityTool = createFindMedicalFacilityTool();
+  const facilityToolForModel = createFacilityToolForModel(findMedicalFacilityTool, llmConfig);
+
   const webSearchEnabled = tavilyApiKey.trim() !== '';
+  if (webSearchEnabled && !tavilyApiKey.trim().startsWith('tvly-')) {
+    agentLogger.warn('TAVILY_API_KEY does not look like a Tavily key (tvly-...); web_search will fail');
+  }
+
   const tools = [
-    findDoctorsTool, // all doctor sources (see sources/index.ts)
+    facilityToolForModel,
+    findDoctorsTool,
     ...(webSearchEnabled ? [createWebSearchTool(tavilyApiKey)] : []),
   ];
   const assistantPrompt = webSearchEnabled
-    ? `${llmConfig.systemPrompts.assistant}
-${llmConfig.systemPrompts.webSearchNote}`
+    ? `${llmConfig.systemPrompts.assistant}\n${llmConfig.systemPrompts.webSearchNote}`
     : llmConfig.systemPrompts.assistant;
   const assistantModel = model.bindTools(tools);
   const triage = createTriageStep(triageModel, llmConfig);
@@ -231,7 +266,7 @@ ${llmConfig.systemPrompts.webSearchNote}`
         response: { text, doctors: [] },
       };
     })
-    .addNode('planSearch', async ({ messages }) => {
+    .addNode('planSearch', async ({ messages, userLocation, previousSearch }) => {
       // speciality names from all doctor sites (cached), if sites down - skip
       const specialityNames = await findSpecialities(doctorSources);
       if (specialityNames.length === 0) {
@@ -262,24 +297,69 @@ ${llmConfig.systemPrompts.webSearchNote}`
 
       if (!plan.wantsDoctor || !plan.speciality) return { searchPlan: plan };
 
-      const toolCall = {
+      const speciality = plan.speciality;
+      // Follow-up without a town ("A kardiológ?"): keep the town of the last search.
+      // Small models often drop it even when the prompt asks them to keep it.
+      if (!plan.town && previousSearch?.town) {
+        agentLogger.log(`planSearch: no town, keeping "${previousSearch.town}" from the last search`);
+        plan = { ...plan, town: previousSearch.town };
+      }
+      const town = plan.town ?? undefined;
+      const queries = llmConfig.facilityTypes[speciality] ?? [];
+      const calls: { call: ToolCall; run: () => Promise<ToolMessage> }[] = [];
+
+      if (queries.length > 0) {
+        const call: ToolCall = {
+          id: `plan_${randomUUID()}`,
+          name: FIND_MEDICAL_FACILITY_TOOL,
+          args: { query: queries[0].query, ...(town ? { county_filter: town } : {}) },
+          type: 'tool_call',
+        };
+        calls.push({
+          call,
+          run: async () => {
+            const [content, artifact] = await searchFacilities(
+              findMedicalFacilityTool,
+              {
+                speciality,
+                town,
+                queries,
+                location: userLocation ?? llmConfig.defaultLocation,
+                radiusKm: llmConfig.searchRadiusKm,
+              },
+              llmConfig,
+            );
+            return new ToolMessage({ content, artifact, tool_call_id: call.id!, name: call.name });
+          },
+        });
+      }
+
+      const doctorsCall: ToolCall = {
         id: `plan_${randomUUID()}`,
         name: FIND_DOCTORS_TOOL,
-        args: { speciality: plan.speciality, ...(plan.town ? { town: plan.town } : {}) },
-        type: 'tool_call' as const,
+        args: { speciality, ...(town ? { town } : {}) },
+        type: 'tool_call',
       };
-      try {
-        const toolMessage = (await findDoctorsTool.invoke(toolCall)) as ToolMessage;
-        return {
-          searchPlan: plan,
-          messages: [new AIMessage({ content: '', tool_calls: [toolCall] }), toolMessage],
-          toolsUsed: true,
-          toolRounds: 1,
-        };
-      } catch (error) {
-        agentLogger.warn(`planSearch: find_doctors failed: ${String(error)}`);
-        return { searchPlan: plan };
-      }
+      calls.push({ call: doctorsCall, run: async () => (await findDoctorsTool.invoke(doctorsCall)) as ToolMessage });
+
+      const settled = await Promise.allSettled(calls.map(({ run }) => run()));
+      const done = calls.flatMap(({ call }, index) => {
+        const result = settled[index];
+        if (result.status === 'fulfilled') return [{ call, message: result.value }];
+        agentLogger.warn(`planSearch: ${call.name} failed: ${String(result.reason)}`);
+        return [];
+      });
+      if (done.length === 0) return { searchPlan: plan };
+
+      return {
+        searchPlan: plan,
+        messages: [
+          new AIMessage({ content: '', tool_calls: done.map(({ call }) => call) }),
+          ...done.map(({ message }) => message),
+        ],
+        toolsUsed: true,
+        toolRounds: 1,
+      };
     })
     .addNode('agent', async ({ messages, triageResult }) => ({
       messages: [
@@ -299,7 +379,7 @@ ${llmConfig.systemPrompts.webSearchNote}`
       const history = withoutDanglingToolCalls(messages);
       let response: DoctorResponse | undefined;
 
-      const found = lastFoundDoctors(history);
+      const found = foundDoctors(history);
       if (found) {
         response = {
           text:
@@ -389,7 +469,13 @@ export class AgentService {
     );
   }
 
-  streamEvents(messages: BaseMessage[]) {
-    return this.graph.streamEvents({ messages }, { version: 'v2' });
+  streamEvents(
+    messages: BaseMessage[],
+    options: { userLocation?: UserLocation; previousSearch?: SearchPlan } = {},
+  ) {
+    return this.graph.streamEvents(
+      { messages, userLocation: options.userLocation, previousSearch: options.previousSearch },
+      { version: 'v2' },
+    );
   }
 }

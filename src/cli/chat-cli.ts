@@ -43,7 +43,7 @@ await app.close();
 
 async function sendMessage(text: string): Promise<void> {
   try {
-    const prep = await chat.prepareStream(text, state.sessionId);
+    const prep = await chat.prepareStream(text, state.sessionId, state.location);
     state.sessionId = prep.sessionId;
 
     for await (const chunk of chat.generateStream(prep.streamId, { debug: true })) {

@@ -4,27 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { registerAs } from '@nestjs/config';
 import { parse } from 'yaml';
 
-export type LlmConfig = SourcesConfig & PromptsConfig & MessagesConfig & KskGeoportalConfig;
+export type LlmConfig = SourcesConfig & PromptsConfig & MessagesConfig & FacilityTypesConfig;
 
 // --- llm.config.yaml ---
 type SourcesConfig = {
   allowedApiDomains: string[];
   trustedDoctorSources: DoctorSource[];
-};
-
-// --- ksk-geoportal.yaml ---
-type KskGeoportalConfig = {
-  kskGeoportal: {
-    /** Our speciality name -> facility types in the register. */
-    specialities: Record<string, FacilityType[]>;
-  };
-};
-
-export type FacilityType = {
-  /** Exact value of `druh_zariadenia`. */
-  type: string;
-  /** Optional part of `typ_zariadenia_complex_code` (e.g. "dospeli", "deti_a_dorast"). */
-  codeIncludes?: string;
+  defaultLocation: { lat: number; lon: number };
+  searchRadiusKm: number;
 };
 
 export type DoctorSource = {
@@ -33,13 +20,22 @@ export type DoctorSource = {
   apiInstructions: string;
 };
 
+// --- facility-types.yaml ---
+type FacilityTypesConfig = {
+  facilityTypes: Record<string, FacilityQuery[]>;
+};
+
+export type FacilityQuery = {
+  query: string;
+  nameIncludes?: string;
+};
+
 // --- prompts.yaml ---
 type PromptsConfig = {
   systemPrompts: {
     assistant: string;
     triage: string;
     urgentNote: string;
-    /** Added to `assistant` only when web_search is on (TAVILY_API_KEY set). */
     webSearchNote: string;
     searchPlanner: string;
     townPicker: string;
@@ -52,6 +48,20 @@ type PromptsConfig = {
     urlField: string;
   };
   findDoctors: FindDoctorsTexts;
+  findMedicalFacility: FindMedicalFacilityTexts;
+};
+
+export type FindMedicalFacilityTexts = {
+  resultHeader: string;
+  resultHeaderPartial: string;
+  resultFacility: string;
+  resultMore: string;
+  resultFooter: string;
+  noResults: string;
+  failed: string;
+  anywhere: string;
+  nearby: string;
+  distance: string;
 };
 
 export type TranscriptLabels = {
@@ -96,15 +106,13 @@ type MessagesConfig = {
 export type DoctorListTexts = {
   addressMissing: string;
   otherSpecialities: string;
-  /** {hours} */
   openingHours: string;
-  /** {insurers} */
   insurers: string;
-  /** Short day names, keyed by the register's field names (pondelok, utorok, ...). */
   days: Record<string, string>;
+  distance: string;
 };
 
-const CONFIG_FILES = ['llm.config.yaml', 'prompts.yaml', 'messages.yaml', 'ksk-geoportal.yaml'];
+const CONFIG_FILES = ['llm.config.yaml', 'prompts.yaml', 'messages.yaml', 'facility-types.yaml'];
 
 export function loadLlmConfig(): LlmConfig {
   const folder = fileURLToPath(new URL('.', import.meta.url));

@@ -38,6 +38,4 @@ export type DoctorListing = {
   specialities: string[];
   address: string;
   url: string;
-  /** Optional extra line for the user, e.g. opening hours and insurers. */
-  details?: string;
 };

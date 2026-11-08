@@ -6,6 +6,7 @@ import { HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages';
 import { DbService } from '../db/db.service.js';
 import { AgentService } from './agent.service.js';
 import type { DoctorResponse } from './doctor-response.js';
+import type { UserLocation } from './user-location.js';
 import type { DebugEvent, TokenUsage } from './debug-events.js';
 import type { SearchPlan } from './agent.service.js';
 import { TRIAGE_LEVEL_NAMES, type TriageResult } from './triage/triage.js';
@@ -22,9 +23,11 @@ export type StreamChunk =
 export class ChatSessionService {
   private readonly logger = new Logger(ChatSessionService.name);
   private sessions = new Map<string, BaseMessage[]>();
+  /** Last doctor search per session, so "A kardiológ?" keeps the town. */
+  private lastSearch = new Map<string, SearchPlan>();
   private streamQueue = new Map<
     string,
-    { sessionId: string; messages: BaseMessage[] }
+    { sessionId: string; messages: BaseMessage[]; userLocation?: UserLocation }
   >();
 
   constructor(
@@ -33,7 +36,7 @@ export class ChatSessionService {
     private config: ConfigService,
   ) {}
 
-  public async prepareStream(prompt: string, incomingSessionId?: string) {
+  public async prepareStream(prompt: string, incomingSessionId?: string, userLocation?: UserLocation) {
     const sessionId = incomingSessionId || randomUUID();
 
     if (incomingSessionId && !this.sessions.has(sessionId)) {
@@ -58,7 +61,7 @@ export class ChatSessionService {
     await this.dbService.saveMessage(sessionId, 'user', prompt);
 
     const streamId = randomUUID();
-    this.streamQueue.set(streamId, { sessionId, messages: history });
+    this.streamQueue.set(streamId, { sessionId, messages: history, userLocation });
 
     return { streamId, sessionId };
   }
@@ -83,7 +86,7 @@ export class ChatSessionService {
     }
 
     this.streamQueue.delete(streamId);
-    const { sessionId, messages } = queueData;
+    const { sessionId, messages, userLocation } = queueData;
     this.logger.log(
       `[${sessionId}] Starting stream [stream=${streamId}]`,
     );
@@ -104,7 +107,10 @@ export class ChatSessionService {
       };
     }
 
-    const eventStream = this.agentService.streamEvents(messages);
+    const eventStream = this.agentService.streamEvents(messages, {
+      userLocation,
+      previousSearch: this.lastSearch.get(sessionId),
+    });
     let completeAssistantResponse = '';
     let completeDoctorResponse: DoctorResponse | undefined;
     let messageTokenUsage = {
@@ -145,9 +151,10 @@ export class ChatSessionService {
               };
             }
           }
-          if (debug && graphNode === 'planSearch') {
+          if (graphNode === 'planSearch') {
             const plan = event.data.output?.searchPlan as SearchPlan | undefined;
-            if (plan) yield { type: 'debug', kind: 'plan', ...plan };
+            if (plan?.wantsDoctor && plan.speciality) this.lastSearch.set(sessionId, plan);
+            if (debug && plan) yield { type: 'debug', kind: 'plan', ...plan };
           }
           if (graphNode === 'emergency' || graphNode === 'finalize') {
             const response = event.data.output?.response as
