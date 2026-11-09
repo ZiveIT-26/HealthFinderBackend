@@ -11,7 +11,7 @@ import type { DebugEvent, TokenUsage } from './debug-events.js';
 import type { SearchPlan } from './agent.service.js';
 import { TRIAGE_LEVEL_NAMES, type TriageResult } from './triage/triage.js';
 
-const DEBUG = true;
+const DEBUG = false;
 export type StreamChunk =
   | string
   | DoctorResponse

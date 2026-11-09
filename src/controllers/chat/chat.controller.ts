@@ -134,15 +134,21 @@ export class ChatController {
 
 function toSseData(chunk: StreamChunk): Record<string, unknown> {
   if (typeof chunk === 'string') {
-    return { text: chunk };
+    return { type: 'token', text: chunk };
   }
 
   if (
     'type' in chunk &&
-    (chunk.type === 'heartbeat' || chunk.type === 'error' || chunk.type === 'debug')
+    (chunk.type === 'heartbeat' ||
+      chunk.type === 'error' ||
+      chunk.type === 'debug')
   ) {
     return chunk;
   }
 
-  return chunk as DoctorResponse;
+  const doctorResponse = chunk as DoctorResponse;
+  return {
+    type: 'doctors_list',
+    doctors: doctorResponse.doctors,
+  };
 }
