@@ -26,6 +26,7 @@ type PromptsConfig = {
     urgentNote: string;
     webSearchNote: string;
     emergencyResponse: string;
+    emergencyMemory: string;
     responseFormatter: string;
   };
   transcript: TranscriptLabels;

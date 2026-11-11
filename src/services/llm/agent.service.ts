@@ -10,6 +10,7 @@ import {
   END,
 } from '@langchain/langgraph';
 import { ToolNode } from '@langchain/langgraph/prebuilt';
+import { InMemoryStore } from '@langchain/core/stores';
 import {
   AIMessage,
   BaseMessage,
@@ -34,13 +35,16 @@ import { createTriageStep } from './triage/triage-step.js';
 import { messageText } from './transcript.js';
 import { createChatModel, readLlmSettings, readTriageLlmSettings } from './llm-model.js';
 import { withoutSameDoctors } from './same-doctor.js';
+import { createMemoryTools } from './tools/memory.tool.js';
+import { DbService } from '../db/db.service.js';
 import {
   doctorResponseSchemaForModel,
   type DoctorResponse,
 } from './doctor-response.js';
 
 
-const MAX_TOOL_ROUNDS = 4;
+const MAX_TOOL_ROUNDS = 10;
+const MAX_EMERGENCY_TOOL_ROUNDS = 5;
 const agentLogger = new Logger('AgentGraph');
 
 const FETCH_PAGE_TOOL = 'fetch_trusted_doctor_page';
@@ -146,11 +150,15 @@ function createAgentGraph(
   tavilyApiKey: string,
   httpService: HttpService,
   llmConfig: LlmConfig,
+  dbService: DbService,
+  memoryStore: InMemoryStore<{ id: string; content: string }[]>,
+  sessionId: string,
 ) {
   const doctorSources = createDoctorSources(httpService, llmConfig);
   const findDoctorsTool = createFindDoctorsTool(doctorSources, llmConfig);
   const findMedicalFacilityTool = createFindMedicalFacilityTool();
   const facilityToolForModel = createFacilityToolForModel(findMedicalFacilityTool, llmConfig);
+  const memoryTools = createMemoryTools(memoryStore, dbService, sessionId);
 
   const webSearchEnabled = tavilyApiKey.trim() !== '';
   if (webSearchEnabled && !tavilyApiKey.trim().startsWith('tvly-')) {
@@ -160,6 +168,7 @@ function createAgentGraph(
   const tools = [
     facilityToolForModel,
     findDoctorsTool,
+    ...memoryTools,
     ...(webSearchEnabled ? [createWebSearchTool(tavilyApiKey)] : []),
   ];
   const assistantPrompt = webSearchEnabled
@@ -167,42 +176,58 @@ function createAgentGraph(
     : llmConfig.systemPrompts.assistant;
   const assistantModel = model.bindTools(tools);
   const triage = createTriageStep(triageModel, llmConfig);
-  const emergencyModel = model;
+  const emergencyModel = model.bindTools(memoryTools);
 
   const responseModel = model.withStructuredOutput(doctorResponseSchemaForModel(llmConfig.doctorResponse), {
     method: 'jsonSchema',
     strict: true,
   });
   const toolNode = new ToolNode(tools);
+  const emergencyToolNode = new ToolNode(memoryTools);
 
   return new StateGraph(AgentState)
     .addNode('triage', async ({ messages }) => ({ triageResult: await triage(messages) }))
-    .addNode('emergency', async ({ messages }) => {
-      const latestMessage = [...messages]
-        .reverse()
-        .find(
-          (message): message is HumanMessage => message instanceof HumanMessage,
-        );
-
-      let text = '';
-      if (latestMessage) {
-        try {
-          const response = await emergencyModel.invoke([
-            new SystemMessage(llmConfig.systemPrompts.emergencyResponse),
-            latestMessage,
-          ]);
-          text = messageText(response).trim();
-        } catch (error) {
-          agentLogger.error(`emergency: model call failed, using fixed text: ${String(error)}`);
+    .addNode('emergency', async ({ messages, toolRounds }) => {
+      try {
+        if (toolRounds >= MAX_EMERGENCY_TOOL_ROUNDS) {
+          const text = llmConfig.fallbackMessages.emergency.trim();
+          return {
+            messages: [new AIMessage(text)],
+            response: { text, doctors: [] },
+          };
         }
-      }
-      if (!text) text = llmConfig.fallbackMessages.emergency.trim();
 
-      return {
-        messages: [new AIMessage(text)],
-        response: { text, doctors: [] },
-      };
+        const latestMessageIndex = messages.findLastIndex(
+          (message) => message instanceof HumanMessage,
+        );
+        const response = await emergencyModel.invoke([
+          new SystemMessage(
+            `${llmConfig.systemPrompts.emergencyResponse}\n${llmConfig.systemPrompts.emergencyMemory}`,
+          ),
+          ...messages.slice(latestMessageIndex),
+        ]);
+        if (response instanceof AIMessage && response.tool_calls?.length) {
+          return { messages: [response] };
+        }
+
+        const text = messageText(response).trim() || llmConfig.fallbackMessages.emergency.trim();
+        return {
+          messages: [new AIMessage(text)],
+          response: { text, doctors: [] },
+        };
+      } catch (error) {
+        agentLogger.error(`emergency: model call failed, using fixed text: ${String(error)}`);
+        const text = llmConfig.fallbackMessages.emergency.trim();
+        return {
+          messages: [new AIMessage(text)],
+          response: { text, doctors: [] },
+        };
+      }
     })
+    .addNode('emergencyTools', async (state) => ({
+      ...(await emergencyToolNode.invoke(state)),
+      toolRounds: state.toolRounds + 1,
+    }))
     .addNode('agent', async ({ messages, triageResult }) => ({
       messages: [
         await assistantModel.invoke([
@@ -267,7 +292,13 @@ function createAgentGraph(
     .addConditionalEdges('triage', ({ triageResult }) =>
       triageResult && triageResult.level >= 3 ? 'emergency' : 'agent',
     )
-    .addEdge('emergency', END)
+    .addConditionalEdges('emergency', ({ messages }) => {
+      const lastMessage = messages[messages.length - 1];
+      return lastMessage instanceof AIMessage && (lastMessage.tool_calls?.length ?? 0) > 0
+        ? 'emergencyTools'
+        : END;
+    })
+    .addEdge('emergencyTools', 'emergency')
     .addConditionalEdges('agent', ({ messages, toolsUsed, toolRounds }) => {
       const lastMessage = messages[messages.length - 1];
       const wantsTools =
@@ -287,29 +318,42 @@ function createAgentGraph(
 
 @Injectable()
 export class AgentService {
-  private readonly graph: ReturnType<typeof createAgentGraph>;
+  private readonly model: ChatOpenAI;
+  private readonly triageModel: ChatOpenAI;
+  private readonly tavilyApiKey: string;
+  private readonly llmConfig: LlmConfig;
+  private readonly memoryStore = new InMemoryStore<{ id: string; content: string }[]>();
 
   constructor(
     config: ConfigService,
     private readonly httpService: HttpService,
+    private readonly dbService: DbService,
   ) {
     const main = readLlmSettings(config);
     const triage = readTriageLlmSettings(config);
     agentLogger.log(`models: ${main.model}, triage: ${triage.model}`);
 
-    this.graph = createAgentGraph(
-      createChatModel(main),
-      createChatModel(triage),
-      config.getOrThrow<string>('TAVILY_API_KEY'),
-      this.httpService,
-      config.getOrThrow<LlmConfig>('llm'),
-    );
+    this.model = createChatModel(main);
+    this.triageModel = createChatModel(triage);
+    this.tavilyApiKey = config.getOrThrow<string>('TAVILY_API_KEY');
+    this.llmConfig = config.getOrThrow<LlmConfig>('llm');
   }
 
   streamEvents(
     messages: BaseMessage[],
+    sessionId: string,
   ) {
-    return this.graph.streamEvents(
+    const graph = createAgentGraph(
+      this.model,
+      this.triageModel,
+      this.tavilyApiKey,
+      this.httpService,
+      this.llmConfig,
+      this.dbService,
+      this.memoryStore,
+      sessionId,
+    );
+    return graph.streamEvents(
       { messages },
       { version: 'v2' },
     );

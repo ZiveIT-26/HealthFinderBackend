@@ -10,6 +10,8 @@ import type { DebugEvent, TokenUsage } from './debug-events.js';
 import { TRIAGE_LEVEL_NAMES, type TriageResult } from './triage/triage.js';
 
 const DEBUG = false;
+// Temporary single-user identity until authenticated request identity is available.
+const TEMPORARY_USER_ID = '00000000-0000-0000-0000-000000000001';
 export type StreamChunk =
   | string
   | DoctorResponse
@@ -34,6 +36,10 @@ export class ChatSessionService {
 
   public async prepareStream(prompt: string, incomingSessionId?: string) {
     const sessionId = incomingSessionId || randomUUID();
+
+    if (!incomingSessionId) {
+      await this.dbService.createSession(sessionId, TEMPORARY_USER_ID);
+    }
 
     if (incomingSessionId && !this.sessions.has(sessionId)) {
       const dbHistory = await this.dbService.getSessionHistory(sessionId);
@@ -103,7 +109,7 @@ export class ChatSessionService {
       };
     }
 
-    const eventStream = this.agentService.streamEvents(messages);
+    const eventStream = this.agentService.streamEvents(messages, sessionId);
     let completeAssistantResponse = '';
     let completeDoctorResponse: DoctorResponse | undefined;
     let messageTokenUsage = {

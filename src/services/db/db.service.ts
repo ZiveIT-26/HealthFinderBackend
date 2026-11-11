@@ -35,6 +35,23 @@ export class DbService implements OnModuleDestroy {
     );
   }
 
+  public async createSession(sessionId: string, userId: string): Promise<void> {
+    await this.ensureUser(userId);
+    await this.pool.query(
+      'INSERT INTO sessions (id, user_id) VALUES ($1, $2)',
+      { params: [sessionId, userId] },
+    );
+  }
+
+  public async getSessionUserId(sessionId: string): Promise<string | undefined> {
+    const result = await this.pool.query(
+      'SELECT user_id FROM sessions WHERE id = $1',
+      { params: [sessionId], objectRows: true },
+    );
+
+    return result.rows?.[0]?.user_id;
+  }
+
   public async getSessionHistory(sessionId: string) {
     const result = await this.pool.query(
       'SELECT role, content FROM chat_messages WHERE session_id = $1 ORDER BY created_at ASC',
@@ -42,5 +59,45 @@ export class DbService implements OnModuleDestroy {
     );
 
     return result.rows;
+  }
+
+  public async getMemories(userId: string): Promise<{ id: string; content: string }[]> {
+    const result = await this.pool.query(
+      'SELECT id, content FROM user_memories WHERE user_id = $1 ORDER BY created_at ASC, id ASC',
+      { params: [userId], objectRows: true },
+    );
+
+    return (result.rows ?? []).map((row: { id: string | number; content: string }) => ({
+      id: String(row.id),
+      content: row.content,
+    }));
+  }
+
+  public async ensureUser(userId: string): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+      { params: [userId] },
+    );
+  }
+
+  public async saveMemory(userId: string, content: string): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO user_memories (user_id, content) VALUES ($1, $2) ON CONFLICT (user_id, content) DO NOTHING',
+      { params: [userId, content] },
+    );
+  }
+
+  public async updateMemory(userId: string, id: string, content: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE user_memories SET content = $1 WHERE user_id = $2 AND id = $3',
+      { params: [content, userId, id] },
+    );
+  }
+
+  public async deleteMemory(userId: string, id: string): Promise<void> {
+    await this.pool.query(
+      'DELETE FROM user_memories WHERE user_id = $1 AND id = $2',
+      { params: [userId, id] },
+    );
   }
 }
