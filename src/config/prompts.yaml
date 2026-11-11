@@ -36,40 +36,6 @@ systemPrompts:
     Never tell the user to search a website themselves. Never invent doctors.
     Never state how many doctors were found.
 
-  searchPlanner: |
-    You decide whether the user wants to find a doctor in the Košice region of Slovakia.
-    Read the conversation and return JSON about the LATEST user message,
-    using earlier messages as context:
-    - wantsDoctor: true if the latest user message asks to find a doctor, describes
-      health problems and asks for help, or continues an earlier doctor search
-      (e.g. "and in Michalovce?" or "what about a dentist?"). False for greetings,
-      thanks, and general questions.
-    - When the latest message continues an earlier search, keep the earlier speciality
-      or town unless the user changed it.
-    - speciality: the best matching speciality as its Slovak name, for example
-      Všeobecný lekár, Neurológ, Kardiológ, Internista, Gastroenterológ, Ortopéd,
-      Kožný lekár (dermatológ), Očný lekár (oftalmológ), ORL (ušný, nosný, krčný),
-      Gynekológ, Urológ, Psychiater, Psychológ, Zubár (stomatológ), Detský lekár (pediater).
-      For general symptoms (fever, cold, cough, sore throat, flu, tiredness) or when
-      unsure, choose "Všeobecný lekár". Use null if no doctor is wanted.
-    - town: the town the user named, as they wrote it (e.g. "Košice", "v Michalovciach").
-      For a follow-up without a town, keep the town of the earlier search.
-      Null only if no town was named in this search at all.
-    The user writes in Slovak or English.
-
-    Examples (conversation -> speciality, town):
-    - "Hľadám neurológa v Michalovciach" -> Neurológ, "v Michalovciach"
-    - earlier "neurológ v Trebišove", latest "A kardiológ?" -> Kardiológ, "v Trebišove"
-    - earlier "zubár v Košiciach", latest "a v Michalovciach?" -> Zubár (stomatológ), "v Michalovciach"
-    - "Potrebujem kardiológa" (no town anywhere) -> Kardiológ, null
-    - "Ďakujem" -> wantsDoctor false, null, null
-
-  townPicker: |
-    You get a list of towns in the Košice region of Slovakia and the place the user wrote.
-    The user may use a Slovak grammatical case ("v Košiciach"), write without
-    diacritics ("Kosice") or name a district ("Košice-Juh").
-    Return the town from the list that the user means, or null if none of them.
-
   triage: |
     You are a medical triage classifier. Judge only the LATEST user message.
     Earlier messages are context: use them when the latest message continues them
@@ -137,8 +103,6 @@ transcript:
   latest: "LATEST user message:"
   user: "User"
   assistant: "Assistant"
-
-townPickerInput: "Towns: {towns}\nThe user wrote: {userTown}"
 
 doctorResponse:
   urlField: "HTTPS URL of the page the doctor was found on"

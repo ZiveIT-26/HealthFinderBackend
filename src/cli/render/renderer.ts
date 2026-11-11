@@ -52,13 +52,6 @@ export class Renderer {
     }
   }
 
-  plan(event: Extract<DebugEvent, { kind: 'plan' }>): void {
-    this.line(
-      paint('yellow', '[plan]') +
-        ` wantsDoctor=${event.wantsDoctor} speciality=${event.speciality ?? '-'} town=${event.town ?? '-'}`,
-    );
-  }
-
   tool(event: Extract<DebugEvent, { kind: 'tool' }>): void {
     const result = event.error
       ? paint('red', `error: ${event.error}`)

@@ -2,25 +2,14 @@ import { Logger } from '@nestjs/common';
 import { tool } from '@langchain/core/tools';
 import type {
   DoctorListTexts,
-  FacilityQuery,
+
   FindMedicalFacilityTexts,
 } from '../../../config/llm.config.js';
 import { fillTemplate } from '../../../config/template.js';
 import type { DoctorResponse } from '../doctor-response.js';
-import type { UserLocation } from '../user-location.js';
 import type { createFindMedicalFacilityTool } from './find-medical-facility.tool.js';
 import { normalize } from './find-doctors.tool.js';
 
-/**
- * Everything around the find_medical_facility tool (find-medical-facility.tool.ts),
- * which stays as it is. The tool returns the raw register records (a big JSON
- * array); this file turns them into:
- *   - a short text for the model (like find_doctors: up to MAX_FOR_MODEL lines),
- *   - a doctor list for the user (artifact): name, address, phone, map link,
- *     opening hours and insurers.
- * It also filters the town exactly (the tool's county filter is ILIKE, so
- * "Košice I" also matches "Košice II"), removes duplicates and adds a timeout.
- */
 
 export const FIND_MEDICAL_FACILITY_TOOL = 'find_medical_facility';
 
@@ -179,44 +168,6 @@ async function callTool(facilityTool: FacilityTool, args: Record<string, unknown
     ),
   ]);
   return Array.isArray(result) ? (result as Facility[]) : [];
-}
-
-export async function searchFacilities(
-  facilityTool: FacilityTool,
-  {
-    speciality,
-    town,
-    queries,
-    location,
-    radiusKm,
-  }: { speciality: string; town?: string; queries: FacilityQuery[]; location?: UserLocation; radiusKm?: number },
-  texts: Texts,
-): Promise<[string, FacilityArtifact | undefined]> {
-
-  const countyFilter = town?.startsWith('Košice') ? town : undefined;
-  const searchRadius = !town && location ? radiusKm : undefined;
-  const where = {
-    ...(countyFilter ? { county_filter: countyFilter } : {}),
-    ...(location ? { user_latitude: location.lat, user_longitude: location.lon } : {}),
-    ...(searchRadius !== undefined ? { radius: searchRadius } : {}),
-  };
-
-  const perQuery = await Promise.all(
-    queries.map(async ({ query, nameIncludes }) => {
-      const found = await callTool(facilityTool, { query, ...where });
-      return nameIncludes
-        ? found.filter((f) => String(f.properties.nazov_zariadenia ?? '').includes(nameIncludes))
-        : found;
-    }),
-  );
-  const all = perQuery.flat();
-  const facilities = town ? inTown(all, town) : all;
-  logger.log(
-    `${speciality} in ${town ?? (searchRadius !== undefined ? `${searchRadius} km around the user` : 'region')}: ` +
-      `${facilities.length} of ${all.length} records`,
-  );
-
-  return facilityResult(facilities, { what: speciality, town, speciality, radiusKm: searchRadius }, texts);
 }
 
 export function createFacilityToolForModel(facilityTool: FacilityTool, texts: Texts) {

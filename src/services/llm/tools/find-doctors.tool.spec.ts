@@ -57,7 +57,6 @@ describe('matchTown', () => {
     expect(matchTown(query, towns)?.name).toBe(expected);
   });
 
-  // Grammatical cases are resolved by the model (enum in planSearch), not by guessing here.
   it.each(['Košiciach', 'Michalovciach'])('does not guess "%s"', (query) => {
     expect(matchTown(query, towns)).toBeUndefined();
   });

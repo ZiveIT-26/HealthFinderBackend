@@ -1,6 +1,5 @@
 import type { ChatSessionService } from '../../services/llm/chat-session.service.js';
 import type { Renderer } from '../render/renderer.js';
-import { parseUserLocation, type UserLocation } from '../../services/llm/user-location.js';
 
 
 export const DEBUG_SECTIONS = ['triage', 'tools', 'context', 'tokens'] as const;
@@ -8,7 +7,6 @@ export type DebugSection = (typeof DEBUG_SECTIONS)[number];
 
 export type CliState = {
   sessionId?: string;
-  location?: UserLocation;
   debug: Set<DebugSection>;
 };
 
@@ -106,26 +104,6 @@ export const COMMANDS: Command[] = [
     run: (_args, { state, out }) => {
       toggle(state, 'triage');
       out.info(`triage output: ${state.debug.has('triage') ? 'on' : 'off'}`);
-    },
-  },
-  {
-    name: 'location',
-    usage: '/location [lat lon|off]',
-    description: 'set your coordinates (default: Košice centre)',
-    run: (args, { state, out }) => {
-      if (args[0] === 'off') {
-        state.location = undefined;
-      } else if (args.length >= 2) {
-        const location = parseUserLocation({ lat: args[0], lon: args[1] });
-        if (!location) {
-          out.error('usage: /location 48.72 21.25');
-          return;
-        }
-        state.location = location;
-      }
-      out.info(
-        `location: ${state.location ? `${state.location.lat}, ${state.location.lon}` : 'default (Košice centre)'}`,
-      );
     },
   },
   {

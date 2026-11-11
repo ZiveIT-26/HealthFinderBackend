@@ -6,7 +6,6 @@ import {
   facilityToDoctor,
   inCounty,
   inTown,
-  searchFacilities,
   townOf,
   withoutDuplicateFacilities,
 } from './facility-result.js';
@@ -117,77 +116,11 @@ describe('with a fake find_medical_facility tool', () => {
       invoke: vi.fn(async () => result),
     }) as unknown as FacilityTool & { invoke: ReturnType<typeof vi.fn> };
 
-  it('planSearch: right query, adults only, exact town', async () => {
-    const facilityTool = fakeTool(records);
-    const [, artifact] = await searchFacilities(
-      facilityTool,
-      { speciality: 'Všeobecný lekár', town: 'Košice I', queries: config.facilityTypes['Všeobecný lekár'] },
-      config,
-    );
-    expect(facilityTool.invoke).toHaveBeenCalledWith({
-      query: 'ambulancia všeobecnej ambulantnej zdravotnej starostlivosti',
-      county_filter: 'Košice I',
-    });
-    expect(artifact?.doctors.map((d) => d.name)).toEqual(['Všeobecná ambulancia pre dospelých, MUDr. A']);
-  });
-
   it('model call: short text instead of the raw JSON', async () => {
     const wrapped = createFacilityToolForModel(fakeTool(records), config);
     const content = await wrapped.invoke({ query: 'všeobecn', county_filter: 'Košice II' });
     expect(String(content)).toContain('1. Všeobecná ambulancia pre dospelých, MUDr. C');
     expect(String(content)).not.toContain('"properties"');
-  });
-});
-
-describe('user location', () => {
-  type FacilityTool = ReturnType<typeof createFindMedicalFacilityTool>;
-  const near = (name: string, km: number): Facility => ({
-    geometry: null,
-    properties: {
-      nazov_zariadenia: name,
-      addressline: `${name} street`,
-      municipality: 'Košice - mestská časť Staré Mesto',
-      county: 'Košice I',
-      distance_to_home_km: km,
-    },
-  });
-  const toolReturning = (records: Facility[]) =>
-    ({ name: 'find_medical_facility', description: 'fake', schema: {}, invoke: vi.fn(async () => records) }) as unknown as
-      FacilityTool & { invoke: ReturnType<typeof vi.fn> };
-  const home = { lat: 48.7203, lon: 21.2575 };
-
-  it('no town: searches around the user and shows the nearest first, with distance', async () => {
-    const facilityTool = toolReturning([near('Far', 7.42), near('Close', 0.55)]);
-    const [content, artifact] = await searchFacilities(
-      facilityTool,
-      { speciality: 'Neurológ', queries: [{ query: 'neurologická ambulancia' }], location: home, radiusKm: 10 },
-      config,
-    );
-    expect(facilityTool.invoke).toHaveBeenCalledWith({
-      query: 'neurologická ambulancia',
-      user_latitude: 48.7203,
-      user_longitude: 21.2575,
-      radius: 10,
-    });
-    expect(artifact?.doctors.map((d) => d.name)).toEqual(['Close', 'Far']);
-    expect(artifact?.doctors[0].additionalInfo).toContain('Vzdialenosť: 0.6 km');
-    expect(content).toContain('in the area within 10 km of the user');
-    expect(content).toContain('Close — Close street (0.6 km from the user)');
-  });
-
-  it('with a town: no radius, only the distance', async () => {
-    const facilityTool = toolReturning([near('A', 1)]);
-    await searchFacilities(
-      facilityTool,
-      { speciality: 'Neurológ', town: 'Košice I', queries: [{ query: 'neurologická ambulancia' }], location: home, radiusKm: 10 },
-      config,
-    );
-    expect(facilityTool.invoke).toHaveBeenCalledWith({
-      query: 'neurologická ambulancia',
-      county_filter: 'Košice I',
-      user_latitude: 48.7203,
-      user_longitude: 21.2575,
-    });
   });
 });
 

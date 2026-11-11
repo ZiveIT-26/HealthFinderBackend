@@ -43,7 +43,7 @@ await app.close();
 
 async function sendMessage(text: string): Promise<void> {
   try {
-    const prep = await chat.prepareStream(text, state.sessionId, state.location);
+    const prep = await chat.prepareStream(text, state.sessionId);
     state.sessionId = prep.sessionId;
 
     for await (const chunk of chat.generateStream(prep.streamId, { debug: true })) {
@@ -55,9 +55,6 @@ async function sendMessage(text: string): Promise<void> {
         switch (chunk.kind) {
           case 'triage':
             if (state.debug.has('triage')) out.triage(chunk);
-            break;
-          case 'plan':
-            if (state.debug.has('triage')) out.plan(chunk);
             break;
           case 'tool':
             if (state.debug.has('tools')) out.tool(chunk);

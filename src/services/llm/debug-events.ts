@@ -30,13 +30,6 @@ export type DebugEvent =
     }
   | {
       type: 'debug';
-      kind: 'plan';
-      wantsDoctor: boolean;
-      speciality: string | null;
-      town: string | null;
-    }
-  | {
-      type: 'debug';
       kind: 'model';
       node: string;
       tokens: TokenUsage;

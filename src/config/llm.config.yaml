@@ -18,9 +18,3 @@ trustedDoctorSources:
       use "Košice I". Links are shown as [text](/path): pass that /path to
       fetch_trusted_doctor_page. Only follow links that appear in fetched pages.
       Use each doctor's detail-page link as the doctor's source URL.
-
-defaultLocation:
-  lat: 48.7203
-  lon: 21.2575
-
-searchRadiusKm: 10

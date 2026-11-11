@@ -4,30 +4,18 @@ import { fileURLToPath } from 'node:url';
 import { registerAs } from '@nestjs/config';
 import { parse } from 'yaml';
 
-export type LlmConfig = SourcesConfig & PromptsConfig & MessagesConfig & FacilityTypesConfig;
+export type LlmConfig = SourcesConfig & PromptsConfig & MessagesConfig;
 
 // --- llm.config.yaml ---
 type SourcesConfig = {
   allowedApiDomains: string[];
   trustedDoctorSources: DoctorSource[];
-  defaultLocation: { lat: number; lon: number };
-  searchRadiusKm: number;
 };
 
 export type DoctorSource = {
   domain: string;
   description: string;
   apiInstructions: string;
-};
-
-// --- facility-types.yaml ---
-type FacilityTypesConfig = {
-  facilityTypes: Record<string, FacilityQuery[]>;
-};
-
-export type FacilityQuery = {
-  query: string;
-  nameIncludes?: string;
 };
 
 // --- prompts.yaml ---
@@ -37,13 +25,10 @@ type PromptsConfig = {
     triage: string;
     urgentNote: string;
     webSearchNote: string;
-    searchPlanner: string;
-    townPicker: string;
     emergencyResponse: string;
     responseFormatter: string;
   };
   transcript: TranscriptLabels;
-  townPickerInput: string;
   doctorResponse: {
     urlField: string;
   };
@@ -112,7 +97,7 @@ export type DoctorListTexts = {
   distance: string;
 };
 
-const CONFIG_FILES = ['llm.config.yaml', 'prompts.yaml', 'messages.yaml', 'facility-types.yaml'];
+const CONFIG_FILES = ['llm.config.yaml', 'prompts.yaml', 'messages.yaml'];
 
 export function loadLlmConfig(): LlmConfig {
   const folder = fileURLToPath(new URL('.', import.meta.url));
