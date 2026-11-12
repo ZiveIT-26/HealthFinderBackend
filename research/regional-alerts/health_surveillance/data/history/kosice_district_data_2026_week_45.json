@@ -1,0 +1,172 @@
+{
+    "metadata": {
+        "source": "UVZ_SR",
+        "source_name": {
+            "sk": "Úrad verejného zdravotníctva Slovenskej republiky",
+            "en": "Public Health Authority of the Slovak Republic"
+        },
+        "source_language": "sk",
+        "report_year": 2026,
+        "calendar_week": 45,
+        "geographic_area": "kosicky_kraj",
+        "source_file": "kosice_report_2026_week_45.pdf"
+    },
+    "indicators": {
+        "acute_respiratory_illnesses": {
+            "source_code": "ARO",
+            "name": {
+                "sk": "Akútne respiračné ochorenia",
+                "en": "Acute respiratory illnesses"
+            },
+            "unit": "cases_per_100000",
+            "denominator": "population_under_care_of_reporting_physicians",
+            "measurement_period": "calendar_week",
+            "pdf_start_page": 4,
+            "districts": {
+                "kosice_1": {
+                    "name": {
+                        "sk": "Okres Košice I",
+                        "en": "Košice I District"
+                    },
+                    "age_0_5": 7220.2,
+                    "age_6_14": 5525.3,
+                    "age_15_19": 2761.3,
+                    "age_20_59": 2584.3,
+                    "age_60_plus": 1048.2,
+                    "total_incidence": 2789.9,
+                    "comparison_percent": 25.6
+                },
+                "kosice_2": {
+                    "name": {
+                        "sk": "Okres Košice II",
+                        "en": "Košice II District"
+                    },
+                    "age_0_5": 4919.0,
+                    "age_6_14": 4778.2,
+                    "age_15_19": 1461.6,
+                    "age_20_59": 1170.0,
+                    "age_60_plus": 526.8,
+                    "total_incidence": 1648.3,
+                    "comparison_percent": 8.7
+                },
+                "kosice_3": {
+                    "name": {
+                        "sk": "Okres Košice III",
+                        "en": "Košice III District"
+                    },
+                    "age_0_5": 4451.5,
+                    "age_6_14": 3428.1,
+                    "age_15_19": 1384.9,
+                    "age_20_59": 1006.8,
+                    "age_60_plus": 829.0,
+                    "total_incidence": 1372.2,
+                    "comparison_percent": 15.0
+                },
+                "kosice_4": {
+                    "name": {
+                        "sk": "Okres Košice IV",
+                        "en": "Košice IV District"
+                    },
+                    "age_0_5": 8090.4,
+                    "age_6_14": 5193.9,
+                    "age_15_19": 1524.5,
+                    "age_20_59": 1248.1,
+                    "age_60_plus": 308.2,
+                    "total_incidence": 1609.1,
+                    "comparison_percent": 10.3
+                },
+                "kosice_okolie": {
+                    "name": {
+                        "sk": "Okres Košice - okolie",
+                        "en": "Košice Surrounding District"
+                    },
+                    "age_0_5": 4225.2,
+                    "age_6_14": 2892.7,
+                    "age_15_19": 1432.0,
+                    "age_20_59": 1507.1,
+                    "age_60_plus": 667.7,
+                    "total_incidence": 1759.0,
+                    "comparison_percent": 6.1
+                }
+            }
+        },
+        "influenza_like_illnesses": {
+            "source_code": "CHPO",
+            "name": {
+                "sk": "Chrípka a chrípke podobné ochorenia",
+                "en": "Influenza and influenza-like illnesses"
+            },
+            "unit": "cases_per_100000",
+            "denominator": "population_under_care_of_reporting_physicians",
+            "measurement_period": "calendar_week",
+            "pdf_start_page": 6,
+            "districts": {
+                "kosice_1": {
+                    "name": {
+                        "sk": "Okres Košice I",
+                        "en": "Košice I District"
+                    },
+                    "age_0_5": 583.5,
+                    "age_6_14": 388.5,
+                    "age_15_19": 0.0,
+                    "age_20_59": 102.4,
+                    "age_60_plus": 0.0,
+                    "total_incidence": 121.9,
+                    "comparison_percent": 254.8
+                },
+                "kosice_2": {
+                    "name": {
+                        "sk": "Okres Košice II",
+                        "en": "Košice II District"
+                    },
+                    "age_0_5": 427.7,
+                    "age_6_14": 513.1,
+                    "age_15_19": 31.1,
+                    "age_20_59": 22.9,
+                    "age_60_plus": 0.0,
+                    "total_incidence": 91.2,
+                    "comparison_percent": 317.7
+                },
+                "kosice_3": {
+                    "name": {
+                        "sk": "Okres Košice III",
+                        "en": "Košice III District"
+                    },
+                    "age_0_5": 0.0,
+                    "age_6_14": 83.6,
+                    "age_15_19": 81.5,
+                    "age_20_59": 28.4,
+                    "age_60_plus": 0.0,
+                    "total_incidence": 29.7,
+                    "comparison_percent": -39.4
+                },
+                "kosice_4": {
+                    "name": {
+                        "sk": "Okres Košice IV",
+                        "en": "Košice IV District"
+                    },
+                    "age_0_5": 0.0,
+                    "age_6_14": 0.0,
+                    "age_15_19": 0.0,
+                    "age_20_59": 121.2,
+                    "age_60_plus": 56.0,
+                    "total_incidence": 84.5,
+                    "comparison_percent": 193.2
+                },
+                "kosice_okolie": {
+                    "name": {
+                        "sk": "Okres Košice - okolie",
+                        "en": "Košice Surrounding District"
+                    },
+                    "age_0_5": 59.0,
+                    "age_6_14": 35.9,
+                    "age_15_19": 12.1,
+                    "age_20_59": 12.0,
+                    "age_60_plus": 10.8,
+                    "total_incidence": 18.5,
+                    "comparison_percent": 7.0
+                }
+            }
+        }
+    }
+}
