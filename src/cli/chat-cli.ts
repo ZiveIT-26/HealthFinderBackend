@@ -8,6 +8,7 @@ import { Renderer } from './render/renderer.js';
 
 const out = new Renderer();
 const state: CliState = { debug: new Set() };
+const CLI_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--debug')) DEBUG_SECTIONS.forEach((section) => state.debug.add(section));
@@ -43,10 +44,10 @@ await app.close();
 
 async function sendMessage(text: string): Promise<void> {
   try {
-    const prep = await chat.prepareStream(text, state.sessionId);
+    const prep = await chat.prepareStream(text, state.sessionId, CLI_USER_ID);
     state.sessionId = prep.sessionId;
 
-    for await (const chunk of chat.generateStream(prep.streamId, { debug: true })) {
+    for await (const chunk of chat.generateStream(prep.streamId, CLI_USER_ID, { debug: true })) {
       if (typeof chunk === 'string') out.answerChunk(chunk);
       else if ('doctors' in chunk) out.doctors(chunk);
       else if (chunk.type === 'error') out.error(chunk.message);

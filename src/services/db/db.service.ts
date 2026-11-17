@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy, Logger } from '@nestjs/common';
 import { Pool } from 'postgrejs';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class DbService implements OnModuleDestroy {
@@ -78,6 +79,50 @@ export class DbService implements OnModuleDestroy {
       'INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
       { params: [userId] },
     );
+  }
+
+  public async findOrCreateGoogleUser(input: {
+    subject: string;
+    email: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  }): Promise<{
+    id: string;
+    email: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  }> {
+    const result = await this.pool.query(
+      `INSERT INTO users (id, google_subject, email, display_name, avatar_url)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (google_subject) DO UPDATE SET
+         email = EXCLUDED.email,
+         display_name = EXCLUDED.display_name,
+         avatar_url = EXCLUDED.avatar_url
+       RETURNING id, email, display_name, avatar_url`,
+      {
+        params: [
+          randomUUID(),
+          input.subject,
+          input.email,
+          input.displayName,
+          input.avatarUrl,
+        ],
+        objectRows: true,
+      },
+    );
+
+    const user = result.rows?.[0];
+    if (!user) {
+      throw new Error('Google user could not be persisted');
+    }
+
+    return {
+      id: String(user.id),
+      email: String(user.email),
+      displayName: user.display_name ?? null,
+      avatarUrl: user.avatar_url ?? null,
+    };
   }
 
   public async saveMemory(userId: string, content: string): Promise<void> {

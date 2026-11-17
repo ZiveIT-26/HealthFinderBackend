@@ -2,7 +2,36 @@
 
 Base URL: `http://localhost:3000`
 
-No authentication is required by the current API.
+`GET /` is public. Chat endpoints require a backend JWT in the
+`Authorization: Bearer <token>` header.
+
+## Google authentication
+
+The Flutter app must obtain a Google ID token and exchange it with the backend:
+
+```http
+POST /auth/google
+Content-Type: application/json
+
+{
+  "idToken": "google-id-token"
+}
+```
+
+The backend verifies the token audience and signature, creates or updates the
+local user, and returns a backend JWT:
+
+```json
+{
+  "accessToken": "backend-jwt",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "displayName": "User",
+    "avatarUrl": "https://..."
+  }
+}
+```
 
 ## Health check
 
@@ -22,6 +51,7 @@ Headers:
 
 ```http
 Content-Type: application/json
+Authorization: Bearer <backend-jwt>
 ```
 
 Request:
@@ -63,6 +93,7 @@ Headers:
 
 ```http
 Accept: text/event-stream
+Authorization: Bearer <backend-jwt>
 ```
 
 The response is **Server-Sent Events (SSE)**. Each event is a JSON object in a

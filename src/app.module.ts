@@ -8,6 +8,10 @@ import { ChatController } from './controllers/chat/chat.controller.js';
 import { ChatSessionService } from './services/llm/chat-session.service.js';
 import { DbService } from './services/db/db.service.js';
 import { AgentService } from './services/llm/agent.service.js';
+import { JwtModule } from '@nestjs/jwt';
+import { AuthController } from './controllers/auth/auth.controller.js';
+import { AuthService } from './services/auth/auth.service.js';
+import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 
 @Module({
   imports: [
@@ -15,8 +19,16 @@ import { AgentService } from './services/llm/agent.service.js';
       load: [llmConfig],
     }),
     HttpModule,
+    JwtModule.register({}),
   ],
-  controllers: [AppController, ChatController],
-  providers: [AppService, ChatSessionService, DbService, AgentService],
+  controllers: [AppController, ChatController, AuthController],
+  providers: [
+    AppService,
+    ChatSessionService,
+    DbService,
+    AgentService,
+    AuthService,
+    JwtAuthGuard,
+  ],
 })
 export class AppModule {}
