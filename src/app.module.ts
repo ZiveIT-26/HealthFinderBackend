@@ -8,6 +8,7 @@ import { ChatController } from './controllers/chat/chat.controller.js';
 import { ChatSessionService } from './services/llm/chat-session.service.js';
 import { DbService } from './services/db/db.service.js';
 import { AgentService } from './services/llm/agent.service.js';
+import { SessionTitleService } from './services/llm/session-title.service.js';
 
 @Module({
   imports: [
@@ -17,6 +18,6 @@ import { AgentService } from './services/llm/agent.service.js';
     HttpModule,
   ],
   controllers: [AppController, ChatController],
-  providers: [AppService, ChatSessionService, DbService, AgentService],
+  providers: [AppService, ChatSessionService, DbService, AgentService, SessionTitleService],
 })
 export class AppModule {}

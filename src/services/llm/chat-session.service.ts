@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages';
 import { DbService } from '../db/db.service.js';
 import { AgentService } from './agent.service.js';
+import { SessionTitleService } from './session-title.service.js';
 import type { DoctorResponse } from './doctor-response.js';
 import type { DebugEvent, TokenUsage } from './debug-events.js';
 import { TRIAGE_LEVEL_NAMES, type TriageResult } from './triage/triage.js';
@@ -17,6 +18,7 @@ export type StreamChunk =
   | DoctorResponse
   | DebugEvent
   | { type: 'heartbeat'; timestamp: string }
+  | { type: 'title'; sessionId: string; title: string }
   | { type: 'error'; message: string };
 
 @Injectable()
@@ -27,10 +29,12 @@ export class ChatSessionService {
     string,
     { sessionId: string; messages: BaseMessage[] }
   >();
+  private untitledSessions = new Map<string, string>();
 
   constructor(
     private dbService: DbService,
     private agentService: AgentService,
+    private sessionTitleService: SessionTitleService,
     private config: ConfigService,
   ) {}
 
@@ -39,6 +43,7 @@ export class ChatSessionService {
 
     if (!incomingSessionId) {
       await this.dbService.createSession(sessionId, TEMPORARY_USER_ID);
+      this.untitledSessions.set(sessionId, prompt);
     }
 
     if (incomingSessionId && !this.sessions.has(sessionId)) {
@@ -296,6 +301,11 @@ export class ChatSessionService {
       yield completeDoctorResponse;
     }
 
+    const titleChunk = await this.nameSession(sessionId);
+    if (titleChunk) {
+      yield titleChunk;
+    }
+
     if (debug) {
       yield {
         type: 'debug',
@@ -308,6 +318,25 @@ export class ChatSessionService {
     }
 
     this.logger.log(`[${sessionId}] Stream completed [stream=${streamId}]`);
+  }
+
+  private async nameSession(
+    sessionId: string,
+  ): Promise<{ type: 'title'; sessionId: string; title: string } | undefined> {
+    const firstPrompt = this.untitledSessions.get(sessionId);
+    if (firstPrompt === undefined) return undefined;
+    this.untitledSessions.delete(sessionId);
+
+    const title = await this.sessionTitleService.generate(firstPrompt);
+    try {
+      await this.dbService.setSessionTitle(sessionId, title);
+    } catch (error) {
+      this.logger.error(
+        `[${sessionId}] Failed to save session title: ${getErrorMessage(error)}`,
+      );
+    }
+    this.logger.log(`[${sessionId}] Session title: ${title}`);
+    return { type: 'title', sessionId, title };
   }
 
   // cli /history

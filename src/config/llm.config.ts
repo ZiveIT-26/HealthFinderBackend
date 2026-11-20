@@ -28,6 +28,7 @@ type PromptsConfig = {
     emergencyResponse: string;
     emergencyMemory: string;
     responseFormatter: string;
+    sessionTitle: string;
   };
   transcript: TranscriptLabels;
   doctorResponse: {

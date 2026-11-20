@@ -50,6 +50,7 @@ async function sendMessage(text: string): Promise<void> {
       if (typeof chunk === 'string') out.answerChunk(chunk);
       else if ('doctors' in chunk) out.doctors(chunk);
       else if (chunk.type === 'error') out.error(chunk.message);
+      else if (chunk.type === 'title') out.info(`[title] ${chunk.title}`);
 
       else if (chunk.type === 'debug') {
         switch (chunk.kind) {

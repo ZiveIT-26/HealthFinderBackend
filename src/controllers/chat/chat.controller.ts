@@ -139,6 +139,7 @@ function toSseData(chunk: StreamChunk): Record<string, unknown> {
     'type' in chunk &&
     (chunk.type === 'heartbeat' ||
       chunk.type === 'error' ||
+      chunk.type === 'title' ||
       chunk.type === 'debug')
   ) {
     return chunk;

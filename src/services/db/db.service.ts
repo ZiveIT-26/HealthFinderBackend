@@ -43,6 +43,13 @@ export class DbService implements OnModuleDestroy {
     );
   }
 
+  public async setSessionTitle(sessionId: string, title: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE sessions SET title = $1 WHERE id = $2',
+      { params: [title, sessionId] },
+    );
+  }
+
   public async getSessionUserId(sessionId: string): Promise<string | undefined> {
     const result = await this.pool.query(
       'SELECT user_id FROM sessions WHERE id = $1',
