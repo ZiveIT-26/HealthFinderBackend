@@ -339,6 +339,10 @@ export class ChatSessionService {
     return { type: 'title', sessionId, title };
   }
 
+  public async renameSession(sessionId: string, title: string) {
+    await this.dbService.setSessionTitle(sessionId, title);
+  }
+
   // cli /history
   public async getHistory(sessionId: string): Promise<{ role: string; content: string }[]> {
     return (await this.dbService.getSessionHistory(sessionId)) as {

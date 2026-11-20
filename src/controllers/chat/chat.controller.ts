@@ -6,7 +6,7 @@ import {
   Post,
   BadRequestException,
   Logger,
-  Res,
+  Res, Patch,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
@@ -127,6 +127,19 @@ export class ChatController {
     });
 
     response.on('close', () => subscription.unsubscribe());
+  }
+
+  @Patch('sessions/:id')
+  async renameSession(
+    @Param('id') id: string,
+    @Body() body: { title?: string },
+  ) {
+    const title = body.title?.trim();
+    if (!title) throw new BadRequestException('Title is required');
+    if (title.length > 100) throw new BadRequestException('Title is too long');
+
+    await this.chatSessionService.renameSession(id, title);
+    return { sessionId: id, title };
   }
 }
 
