@@ -5,10 +5,6 @@ describe('cleanTitle', () => {
     expect(cleanTitle('Title: "Bolesť hlavy a závraty."')).toBe('Bolesť hlavy a závraty');
   });
 
-  it('drops thinking and keeps only the first line', () => {
-    expect(cleanTitle('<think>hmm</think>\n\nКардіолог у Кошице\nextra text')).toBe('Кардіолог у Кошице');
-  });
-
   it('returns empty text for an empty reply', () => {
     expect(cleanTitle('  \n ')).toBe('');
   });

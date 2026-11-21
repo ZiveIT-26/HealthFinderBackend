@@ -1,4 +1,4 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { LlmConfig } from '../../config/llm.config.js';
 import { randomUUID } from 'node:crypto';
@@ -367,7 +367,14 @@ export class ChatSessionService {
     return { type: 'title', sessionId, title };
   }
 
-  public async renameSession(sessionId: string, title: string) {
+  public async renameSession(sessionId: string, title: string, userId: string) {
+    const ownerId = await this.dbService.getSessionUserId(sessionId);
+    if (!ownerId) {
+      throw new NotFoundException('Session not found');
+    }
+    if (ownerId !== userId) {
+      throw new UnauthorizedException('Session does not belong to the authenticated user');
+    }
     await this.dbService.setSessionTitle(sessionId, title);
   }
 

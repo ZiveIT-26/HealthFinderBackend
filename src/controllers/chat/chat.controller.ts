@@ -156,12 +156,13 @@ export class ChatController {
   async renameSession(
     @Param('id') id: string,
     @Body() body: { title?: string },
+    @Req() request: Request & { user: AuthenticatedRequestUser }
   ) {
     const title = body.title?.trim();
     if (!title) throw new BadRequestException('Title is required');
     if (title.length > 100) throw new BadRequestException('Title is too long');
 
-    await this.chatSessionService.renameSession(id, title);
+    await this.chatSessionService.renameSession(id, title, request.user.id);
     return { sessionId: id, title };
   }
 }
