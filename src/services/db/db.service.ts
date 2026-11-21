@@ -51,6 +51,33 @@ export class DbService implements OnModuleDestroy {
     );
   }
 
+  public async getSessionTitle(sessionId: string): Promise<string | null | undefined> {
+    const result = await this.pool.query(
+      'SELECT title FROM sessions WHERE id = $1',
+      { params: [sessionId], objectRows: true },
+    );
+
+    const row = result.rows?.[0];
+    return row ? (row.title ?? null) : undefined;
+  }
+
+  public async listSessions(
+    userId: string,
+  ): Promise<{ id: string; title: string | null; createdAt: Date }[]> {
+    const result = await this.pool.query(
+      'SELECT id, title, created_at FROM sessions WHERE user_id = $1 ORDER BY created_at DESC',
+      { params: [userId], objectRows: true },
+    );
+
+    return (result.rows ?? []).map(
+      (row: { id: string; title: string | null; created_at: Date }) => ({
+        id: String(row.id),
+        title: row.title ?? null,
+        createdAt: row.created_at,
+      }),
+    );
+  }
+
   public async getSessionUserId(sessionId: string): Promise<string | undefined> {
     const result = await this.pool.query(
       'SELECT user_id FROM sessions WHERE id = $1',
