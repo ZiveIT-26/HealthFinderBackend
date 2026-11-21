@@ -1,3 +1,5 @@
+[← Back to README](../README.md)
+
 # HealthFinder API
 
 Base URL: `http://localhost:3000`
