@@ -6,6 +6,10 @@ DROP TABLE IF EXISTS users CASCADE;
 
 CREATE TABLE users (
   id UUID PRIMARY KEY,
+  google_subject TEXT UNIQUE,
+  email TEXT,
+  display_name TEXT,
+  avatar_url TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

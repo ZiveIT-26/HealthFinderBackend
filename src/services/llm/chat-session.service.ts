@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { LlmConfig } from '../../config/llm.config.js';
 import { randomUUID } from 'node:crypto';
@@ -11,8 +11,6 @@ import type { DebugEvent, TokenUsage } from './debug-events.js';
 import { TRIAGE_LEVEL_NAMES, type TriageResult } from './triage/triage.js';
 
 const DEBUG = false;
-// Temporary single-user identity until authenticated request identity is available.
-const TEMPORARY_USER_ID = '00000000-0000-0000-0000-000000000001';
 export type StreamChunk =
   | string
   | DoctorResponse
@@ -27,7 +25,7 @@ export class ChatSessionService {
   private sessions = new Map<string, BaseMessage[]>();
   private streamQueue = new Map<
     string,
-    { sessionId: string; messages: BaseMessage[] }
+    { sessionId: string; userId: string; messages: BaseMessage[] }
   >();
   private untitledSessions = new Map<string, string>();
 
@@ -38,12 +36,20 @@ export class ChatSessionService {
     private config: ConfigService,
   ) {}
 
-  public async prepareStream(prompt: string, incomingSessionId?: string) {
+  public async prepareStream(
+    prompt: string,
+    incomingSessionId: string | undefined,
+    userId: string,
+  ) {
     const sessionId = incomingSessionId || randomUUID();
 
     if (!incomingSessionId) {
-      await this.dbService.createSession(sessionId, TEMPORARY_USER_ID);
-      this.untitledSessions.set(sessionId, prompt);
+      await this.dbService.createSession(sessionId, userId);
+      this.untitledSessions.set(sessionId, prompt); // ?
+    } else if ((await this.dbService.getSessionUserId(sessionId)) !== userId) {
+      throw new UnauthorizedException(
+        'Session does not belong to the authenticated user',
+      );
     }
 
     if (incomingSessionId && !this.sessions.has(sessionId)) {
@@ -68,7 +74,7 @@ export class ChatSessionService {
     await this.dbService.saveMessage(sessionId, 'user', prompt);
 
     const streamId = randomUUID();
-    this.streamQueue.set(streamId, { sessionId, messages: history });
+    this.streamQueue.set(streamId, { sessionId, userId, messages: history });
 
     return { streamId, sessionId };
   }
@@ -77,6 +83,7 @@ export class ChatSessionService {
   //
   async *generateStream(
     streamId: string,
+    userId: string,
     options: { debug?: boolean } = {},
   ): AsyncGenerator<StreamChunk> {
     const queueData = this.streamQueue.get(streamId);
@@ -87,7 +94,16 @@ export class ChatSessionService {
       );
       yield {
         type: 'error',
-        message: this.config.getOrThrow<LlmConfig>('llm').errors.streamNotFound,
+        message: "Stream session not found or expired. Create a new message and use its returned streamId.",
+      };
+      return;
+    }
+
+    if (queueData.userId !== userId) {
+      this.logger.warn(`[stream=${streamId}] Unauthorized stream access`);
+      yield {
+        type: 'error',
+        message: 'You are not authorized to access this stream.',
       };
       return;
     }
@@ -318,6 +334,18 @@ export class ChatSessionService {
     }
 
     this.logger.log(`[${sessionId}] Stream completed [stream=${streamId}]`);
+  }
+
+  public async assertStreamOwner(
+    streamId: string,
+    userId: string,
+  ): Promise<void> {
+    const queueData = this.streamQueue.get(streamId);
+    if (!queueData || queueData.userId !== userId) {
+      throw new UnauthorizedException(
+        'Stream does not belong to the authenticated user',
+      );
+    }
   }
 
   private async nameSession(

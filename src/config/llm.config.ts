@@ -82,11 +82,6 @@ type MessagesConfig = {
     answerFailed: string;
     doctorsFound: string;
   };
-  errors: {
-    messageRequired: string;
-    streamNotFound: string;
-    streamFailed: string;
-  };
   doctorList: DoctorListTexts;
 };
 
