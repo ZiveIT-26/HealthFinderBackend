@@ -8,6 +8,10 @@ describe('cleanTitle', () => {
   it('returns empty text for an empty reply', () => {
     expect(cleanTitle('  \n ')).toBe('');
   });
+
+  it('removes generic doctor-search wording', () => {
+    expect(cleanTitle('Bolesť hlavy a hľadanie lekára')).toBe('Bolesť hlavy');
+  });
 });
 
 describe('fallbackTitle', () => {

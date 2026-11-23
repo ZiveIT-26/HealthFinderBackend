@@ -35,6 +35,19 @@ local user, and returns a backend JWT:
 }
 ```
 
+### Development test authentication
+
+For local API testing without a Google ID token, set
+`TEST_AUTH_ENABLED=true` in the backend environment and call:
+
+```http
+POST /auth/test-login
+```
+
+This creates or reuses a deterministic test user and returns the same
+`{ accessToken, user }` response shape. The endpoint returns `403` unless test
+authentication is enabled, and is always blocked when `NODE_ENV=production`.
+
 ## Health check
 
 `GET /`
@@ -169,5 +182,56 @@ await fetch(`${API_URL}/chat`, {
 });
 ```
 
-The current backend does not expose a history HTTP endpoint. The
-`/chat/history/:sessionId` example in `test.http` is not an implemented route.
+## Chat history
+
+`GET /chat/history/:sessionId`
+
+Returns the saved messages in chronological order. Assistant messages that
+contain doctor results include a `payload` object:
+
+```json
+[
+  {
+    "role": "user",
+    "content": "Find me a neurologist.",
+    "payload": null
+  },
+  {
+    "role": "assistant",
+    "content": "I found neurologists near you.",
+    "payload": {
+      "type": "doctors_list",
+      "doctors": [
+        {
+          "name": "Doctor name",
+          "speciality": "Speciality",
+          "address": "Address",
+          "url": "https://...",
+          "phone": null,
+          "email": null,
+          "additionalInfo": null
+        }
+      ]
+    }
+  }
+]
+```
+
+The session must belong to the authenticated user.
+
+## Chat sessions
+
+`GET /chat/sessions`
+
+Returns all sessions belonging to the authenticated user, newest first,
+without chat histories:
+
+```json
+[
+  {
+    "id": "uuid",
+    "title": "Headache consultation",
+    "createdAt": "2026-11-23T18:30:00.000Z"
+  }
+]
+```

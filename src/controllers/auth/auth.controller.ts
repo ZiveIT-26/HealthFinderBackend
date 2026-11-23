@@ -19,4 +19,9 @@ export class AuthController {
 
     return this.authService.signInWithGoogle(body.idToken);
   }
+
+  @Post('test-login')
+  signInForTesting() {
+    return this.authService.signInForTesting();
+  }
 }

@@ -47,6 +47,8 @@ export function cleanTitle(raw: string): string {
   const title = firstLine
     .replace(/^(title|назва)\s*:\s*/i, '')
     .replace(/^["'«“„*]+|["'»”*]+$/g, '')
+    .replace(/\s+(?:a\s+)?(?:hľadanie|vyhľadanie)\s+(?:lekára|doktora)\s*$/i, '')
+    .replace(/\s+(?:and\s+)?(?:searching|finding)\s+(?:for\s+)?(?:a\s+)?doctor\s*$/i, '')
     .replace(/[.。]+$/, '')
     .trim();
 

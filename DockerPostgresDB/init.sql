@@ -25,6 +25,7 @@ CREATE TABLE chat_messages (
   session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
   content TEXT NOT NULL,
+  payload JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

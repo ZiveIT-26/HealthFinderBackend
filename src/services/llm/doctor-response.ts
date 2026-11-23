@@ -16,6 +16,14 @@ export const doctorResponseSchema = z.object({
   doctors: z.array(doctorSchema),
 });
 
+export const doctorListPayloadSchema = z.object({
+  type: z.literal('doctors_list'),
+  doctors: z.array(doctorSchema),
+});
+
+export type Doctor = z.infer<typeof doctorSchema>;
+export type DoctorListPayload = z.infer<typeof doctorListPayloadSchema>;
+
 export function doctorResponseSchemaForModel(texts: { urlField: string }) {
   return doctorResponseSchema.extend({
     doctors: z.array(doctorSchema.extend({ url: z.string().describe(texts.urlField) })),

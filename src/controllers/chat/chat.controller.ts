@@ -165,6 +165,25 @@ export class ChatController {
     await this.chatSessionService.renameSession(id, title, request.user.id);
     return { sessionId: id, title };
   }
+
+  @Get('history/:sessionId')
+  async getHistory(
+    @Param('sessionId') sessionId: string,
+    @Req() request: Request & { user: AuthenticatedRequestUser },
+  ) {
+    await this.chatSessionService.assertSessionOwner(
+      sessionId,
+      request.user.id,
+    );
+    return this.chatSessionService.getHistory(sessionId);
+  }
+
+  @Get('sessions')
+  async getSessions(
+    @Req() request: Request & { user: AuthenticatedRequestUser },
+  ) {
+    return this.chatSessionService.getSessions(request.user.id);
+  }
 }
 
 function toSseData(chunk: StreamChunk): Record<string, unknown> {

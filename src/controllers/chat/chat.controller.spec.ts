@@ -3,6 +3,7 @@ import { ChatController } from './chat.controller.js';
 import { ConfigService } from '@nestjs/config';
 import { loadLlmConfig } from '../../config/llm.config.js';
 import { ChatSessionService } from '../../services/llm/chat-session.service.js';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
 
 describe('ChatController', () => {
   let controller: ChatController;
@@ -15,7 +16,10 @@ describe('ChatController', () => {
         { provide: ChatSessionService, useValue: {} },
         { provide: ConfigService, useValue: { getOrThrow: () => loadLlmConfig() } },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<ChatController>(ChatController);
   });

@@ -6,7 +6,7 @@ import { HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages';
 import { DbService } from '../db/db.service.js';
 import { AgentService } from './agent.service.js';
 import { SessionTitleService } from './session-title.service.js';
-import type { DoctorResponse } from './doctor-response.js';
+import type { DoctorListPayload, DoctorResponse } from './doctor-response.js';
 import type { DebugEvent, TokenUsage } from './debug-events.js';
 import { TRIAGE_LEVEL_NAMES, type TriageResult } from './triage/triage.js';
 
@@ -300,6 +300,12 @@ export class ChatSessionService {
         sessionId,
         'assistant',
         completeAssistantResponse,
+        completeDoctorResponse
+          ? {
+              type: 'doctors_list',
+              doctors: completeDoctorResponse.doctors,
+            }
+          : undefined,
       );
     } catch (error) {
       this.logger.error(
@@ -378,12 +384,32 @@ export class ChatSessionService {
     await this.dbService.setSessionTitle(sessionId, title);
   }
 
-  // cli /history
-  public async getHistory(sessionId: string): Promise<{ role: string; content: string }[]> {
-    return (await this.dbService.getSessionHistory(sessionId)) as {
-      role: string;
-      content: string;
-    }[];
+  public async assertSessionOwner(
+    sessionId: string,
+    userId: string,
+  ): Promise<void> {
+    const ownerId = await this.dbService.getSessionUserId(sessionId);
+    if (!ownerId) {
+      throw new NotFoundException('Session not found');
+    }
+    if (ownerId !== userId) {
+      throw new UnauthorizedException(
+        'Session does not belong to the authenticated user',
+      );
+    }
+  }
+
+  public async getSessions(userId: string) {
+    return await this.dbService.listSessions(userId);
+  }
+
+
+  public async getHistory(sessionId: string): Promise<{
+    role: string;
+    content: string;
+    payload: DoctorListPayload | null;
+  }[]> {
+    return await this.dbService.getSessionHistory(sessionId);
   }
 }
 
