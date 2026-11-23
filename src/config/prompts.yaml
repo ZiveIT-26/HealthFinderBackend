@@ -126,6 +126,20 @@ systemPrompts:
     Use null for phone, email or additionalInfo when they are not explicitly available.
     Preserve the user's language in the text answer.
 
+  sessionTitle: |
+    You write the title of a chat conversation, shown in a list of past chats.
+    Read the user's first message and reply with a short topic label of 2 to 6 words.
+    The label names the topic, like a heading. It does not describe the user.
+    Do not use names, "user", "patient", "I", "you" or any other person as the subject.
+    Do not include personal details such as names, ages or places of study.
+    Write the title in the same language as the user's message.
+    Reply with the title only: no quotes, no trailing period, no emoji, no explanation.
+    Never give a diagnosis in the title, describe the request instead.
+    
+    Examples:
+    "Bolí ma hlava už tri dni, nájdi mi lekára" -> Bolesť hlavy a hľadanie lekára
+    "Hi, I'm Jannie, I had major stress during my studies, I need someone to talk to" -> Support after study-related stress
+
 transcript:
   earlier: "Earlier messages (context only):"
   latest: "LATEST user message:"

@@ -12,6 +12,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './controllers/auth/auth.controller.js';
 import { AuthService } from './services/auth/auth.service.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
+import { SessionTitleService } from './services/llm/session-title.service.js';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     AgentService,
     AuthService,
     JwtAuthGuard,
+    SessionTitleService,
   ],
 })
 export class AppModule {}

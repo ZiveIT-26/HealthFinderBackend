@@ -10,6 +10,7 @@ import {
   Req,
   UnauthorizedException,
   UseGuards,
+  Patch,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import type { Request } from 'express';
@@ -150,6 +151,20 @@ export class ChatController {
 
     response.on('close', () => subscription.unsubscribe());
   }
+
+  @Patch('sessions/:id')
+  async renameSession(
+    @Param('id') id: string,
+    @Body() body: { title?: string },
+    @Req() request: Request & { user: AuthenticatedRequestUser }
+  ) {
+    const title = body.title?.trim();
+    if (!title) throw new BadRequestException('Title is required');
+    if (title.length > 100) throw new BadRequestException('Title is too long');
+
+    await this.chatSessionService.renameSession(id, title, request.user.id);
+    return { sessionId: id, title };
+  }
 }
 
 function toSseData(chunk: StreamChunk): Record<string, unknown> {
@@ -161,6 +176,7 @@ function toSseData(chunk: StreamChunk): Record<string, unknown> {
     'type' in chunk &&
     (chunk.type === 'heartbeat' ||
       chunk.type === 'error' ||
+      chunk.type === 'title' ||
       chunk.type === 'debug')
   ) {
     return chunk;
