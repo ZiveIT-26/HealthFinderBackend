@@ -1,0 +1,24 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Raw datasets
+*.tif
+*.tiff
+*.xlsx
+*.zip
+healthcare_data*.json
+
+# Detailed research exports retained locally
+results/address_reconciliation_details.csv
+results/candidate_location_gaps.csv
+results/ksk_unmatched.csv
+results/matching_provider_codes.csv
+results/operational_status_audit.csv
+results/outpatient_candidate_gaps.csv
+results/outpatient_unresolved_addresses.csv
+results/udzs_unmatched.csv
+results/population_cells_coverage.geojson
