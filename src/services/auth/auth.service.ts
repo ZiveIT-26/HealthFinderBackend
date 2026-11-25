@@ -1,7 +1,8 @@
 import { ForbiddenException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { randomBytes } from 'node:crypto';
 import { OAuth2Client, type TokenPayload } from 'google-auth-library';
+import { hashAccessToken } from '../../auth/access-token.js';
 import { DbService } from '../db/db.service.js';
 
 @Injectable()
@@ -13,17 +14,13 @@ export class AuthService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly jwtService: JwtService,
     private readonly dbService: DbService,
   ) {}
 
   async signInWithGoogle(idToken: string) {
     const googleClientId = this.config.get<string>('GOOGLE_CLIENT_ID');
-    const jwtSecret = this.config.get<string>('JWT_SECRET');
-    if (!googleClientId || !jwtSecret) {
-      throw new Error(
-        'GOOGLE_CLIENT_ID and JWT_SECRET must be configured for authentication',
-      );
+    if (!googleClientId) {
+      throw new Error('GOOGLE_CLIENT_ID must be configured for authentication');
     }
 
     let payload: TokenPayload | undefined;
@@ -54,10 +51,7 @@ export class AuthService {
       avatarUrl: payload.picture ?? null,
     });
 
-    const accessToken = await this.jwtService.signAsync(
-      { sub: user.id, email: user.email },
-      { secret: jwtSecret, expiresIn: '90d' },
-    );
+    const accessToken = await this.issueAccessToken(user.id);
 
     return { accessToken, user };
   }
@@ -69,21 +63,24 @@ export class AuthService {
       throw new ForbiddenException('Test authentication is disabled');
     }
 
-    const jwtSecret = this.config.get<string>('JWT_SECRET');
-    if (!jwtSecret) {
-      throw new Error('JWT_SECRET must be configured for authentication');
-    }
-
     const user = await this.dbService.findOrCreateTestUser({
       id: this.testUserId,
       email: this.testEmail,
     });
 
-    const accessToken = await this.jwtService.signAsync(
-      { sub: user.id, email: user.email },
-      { secret: jwtSecret, expiresIn: '90d' },
-    );
+    const accessToken = await this.issueAccessToken(user.id);
 
     return { accessToken, user };
+  }
+
+  async logout(tokenHash: string): Promise<{ success: true }> {
+    await this.dbService.deleteAccessToken(tokenHash);
+    return { success: true };
+  }
+
+  private async issueAccessToken(userId: string): Promise<string> {
+    const accessToken = randomBytes(32).toString('base64url');
+    await this.dbService.createAccessToken(hashAccessToken(accessToken), userId);
+    return accessToken;
   }
 }

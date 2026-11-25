@@ -64,6 +64,45 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
     );
   }
 
+  public async createAccessToken(
+    tokenHash: string,
+    userId: string,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO access_tokens (token_hash, user_id, expires_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '90 days')`,
+      { params: [tokenHash, userId] },
+    );
+  }
+
+  public async refreshAccessToken(
+    tokenHash: string,
+  ): Promise<{ id: string; email: string } | undefined> {
+    const result = await this.pool.query(
+      `UPDATE access_tokens AS tokens
+       SET last_used_at = CURRENT_TIMESTAMP,
+           expires_at = CURRENT_TIMESTAMP + INTERVAL '90 days'
+       FROM users
+       WHERE tokens.token_hash = $1
+         AND tokens.user_id = users.id
+         AND tokens.expires_at > CURRENT_TIMESTAMP
+         AND users.email IS NOT NULL
+       RETURNING users.id, users.email`,
+      { params: [tokenHash], objectRows: true },
+    );
+
+    const row = result.rows?.[0];
+    return row
+      ? { id: String(row.id), email: String(row.email) }
+      : undefined;
+  }
+
+  public async deleteAccessToken(tokenHash: string): Promise<void> {
+    await this.pool.query('DELETE FROM access_tokens WHERE token_hash = $1', {
+      params: [tokenHash],
+    });
+  }
+
   public async createSession(sessionId: string, userId: string): Promise<void> {
     await this.ensureUser(userId);
     await this.pool.query(

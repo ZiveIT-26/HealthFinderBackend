@@ -29,11 +29,11 @@ import {
 import { ChatSessionService } from '../../services/llm/chat-session.service.js';
 import type { DoctorResponse } from '../../services/llm/doctor-response.js';
 import type { StreamChunk } from '../../services/llm/chat-session.service.js';
-import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
+import { AccessTokenAuthGuard } from '../../auth/access-token-auth.guard.js';
 import type { AuthenticatedRequestUser } from '../../auth/auth.types.js';
 
 @Controller('chat')
-@UseGuards(JwtAuthGuard)
+@UseGuards(AccessTokenAuthGuard)
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
 

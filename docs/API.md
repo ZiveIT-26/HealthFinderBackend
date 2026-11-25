@@ -4,7 +4,7 @@
 
 Base URL: `http://localhost:3000`
 
-`GET /` is public. Chat endpoints require a backend JWT in the
+`GET /` is public. Chat endpoints require a backend access token in the
 `Authorization: Bearer <token>` header.
 
 ## Google authentication
@@ -20,12 +20,14 @@ Content-Type: application/json
 }
 ```
 
-The backend verifies the token audience and signature, creates or updates the
-local user, and returns a backend JWT:
+The backend verifies the Google token audience and signature, creates or
+updates the local user, and returns a random backend access token. Only a
+SHA-256 hash of the token is stored in the database. Its 90-day inactivity
+expiration is extended whenever it is used:
 
 ```json
 {
-  "accessToken": "backend-jwt",
+  "accessToken": "backend-access-token",
   "user": {
     "id": "uuid",
     "email": "user@example.com",
@@ -34,6 +36,12 @@ local user, and returns a backend JWT:
   }
 }
 ```
+
+### Logout
+
+`POST /auth/logout` revokes the current access token. Include it in the
+`Authorization: Bearer <accessToken>` header. After logout, it cannot be used
+again.
 
 ### Development test authentication
 

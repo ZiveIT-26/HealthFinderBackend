@@ -42,7 +42,6 @@ Everything is read from `.env`. Never commit it)))
 | `DB_CONNECTION_STRING` | yes | `postgres://user:mypassword@localhost:65432/healthfinder` for the Docker database below |
 | `OPENAI_API_KEY` | yes* | OpenAI key. When set, the backend uses `gpt-4o` and ignores the `LLM_*` variables       |
 | `TAVILY_API_KEY` | yes | web search used by the agent                                                            |
-| `JWT_SECRET` | yes | any long random string, see command in `.env.example`                                   |
 | `GOOGLE_CLIENT_ID` | for login | Web OAuth client ID from Google Cloud Console, same one the app uses                    |
 | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_TRIAGE_MODEL` | no | only for local models, see [Local models](docs/LOCAL_MODELS.md)                         |
 | `PORT` | no | default `3000`                                                                          |
@@ -50,11 +49,6 @@ Everything is read from `.env`. Never commit it)))
 \* Either `OPENAI_API_KEY`, or `LLM_BASE_URL` + `LLM_MODEL`.
 
 
-Generate `JWT_SECRET`:
-
-```powershell
-node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
-```
 ## Database
 
 PostgreSQL 16 in Docker, defined in `DockerPostgresDB/docker-compose.yml`:
@@ -63,7 +57,7 @@ PostgreSQL 16 in Docker, defined in `DockerPostgresDB/docker-compose.yml`:
 - container name `healthfinder_db`
 - data is kept in the `pgdata` volume
 
-The schema is in `DockerPostgresDB/init.sql`. Tables: `users`, `sessions`, `chat_messages`, `user_memories`.
+The schema is in `DockerPostgresDB/init.sql`. Tables: `users`, `access_tokens`, `sessions`, `chat_messages`, `user_memories`.
 
 `init.sql` only runs on an empty volume. After it changes, recreate the database (deletes all data):
 
@@ -106,11 +100,11 @@ For local testing use the [CLI chat](docs/CLI.md). It needs no login.
 ```
 src/
   controllers/     HTTP endpoints (chat, auth)
-  auth/            JWT guard
+  auth/            database-backed bearer-token guard
   services/
     llm/           agent graph, triage, tools, titles, chat sessions
     db/            all SQL
-    auth/          Google sign-in, issuing JWTs
+    auth/          Google sign-in and database-backed access tokens
   config/          prompts.yaml (what the model reads), messages.yaml (what the user sees), llm.config.yaml
   cli/             CLI chat and triage eval
 DockerPostgresDB/  docker-compose and init.sql
