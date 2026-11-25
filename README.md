@@ -99,7 +99,7 @@ For local testing use the [CLI chat](docs/CLI.md). It needs no login.
 
 ```
 src/
-  controllers/     HTTP endpoints (chat, auth)
+  controllers/     HTTP endpoints (chat, auth, user, shared memory)
   auth/            database-backed bearer-token guard
   services/
     llm/           agent graph, triage, tools, titles, chat sessions

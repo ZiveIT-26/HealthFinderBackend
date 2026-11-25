@@ -10,7 +10,6 @@ import {
   END,
 } from '@langchain/langgraph';
 import { ToolNode } from '@langchain/langgraph/prebuilt';
-import { InMemoryStore } from '@langchain/core/stores';
 import {
   AIMessage,
   BaseMessage,
@@ -151,14 +150,13 @@ function createAgentGraph(
   httpService: HttpService,
   llmConfig: LlmConfig,
   dbService: DbService,
-  memoryStore: InMemoryStore<{ id: string; content: string }[]>,
   sessionId: string,
 ) {
   const doctorSources = createDoctorSources(httpService, llmConfig);
   const findDoctorsTool = createFindDoctorsTool(doctorSources, llmConfig);
   const findMedicalFacilityTool = createFindMedicalFacilityTool();
   const facilityToolForModel = createFacilityToolForModel(findMedicalFacilityTool, llmConfig);
-  const memoryTools = createMemoryTools(memoryStore, dbService, sessionId);
+  const memoryTools = createMemoryTools(dbService, sessionId);
 
   const webSearchEnabled = tavilyApiKey.trim() !== '';
   if (webSearchEnabled && !tavilyApiKey.trim().startsWith('tvly-')) {
@@ -322,7 +320,6 @@ export class AgentService {
   private readonly triageModel: ChatOpenAI;
   private readonly tavilyApiKey: string;
   private readonly llmConfig: LlmConfig;
-  private readonly memoryStore = new InMemoryStore<{ id: string; content: string }[]>();
 
   constructor(
     config: ConfigService,
@@ -342,6 +339,7 @@ export class AgentService {
   streamEvents(
     messages: BaseMessage[],
     sessionId: string,
+    signal?: AbortSignal,
   ) {
     const graph = createAgentGraph(
       this.model,
@@ -350,12 +348,11 @@ export class AgentService {
       this.httpService,
       this.llmConfig,
       this.dbService,
-      this.memoryStore,
       sessionId,
     );
     return graph.streamEvents(
       { messages },
-      { version: 'v2' },
+      { version: 'v2', signal },
     );
   }
 }

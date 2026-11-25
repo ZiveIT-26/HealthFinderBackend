@@ -92,9 +92,7 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
     );
 
     const row = result.rows?.[0];
-    return row
-      ? { id: String(row.id), email: String(row.email) }
-      : undefined;
+    return row ? { id: String(row.id), email: String(row.email) } : undefined;
   }
 
   public async deleteAccessToken(tokenHash: string): Promise<void> {
@@ -179,6 +177,18 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
     );
   }
 
+  public async deleteSession(sessionId: string): Promise<void> {
+    await this.pool.query('DELETE FROM sessions WHERE id = $1', {
+      params: [sessionId],
+    });
+  }
+
+  public async deleteAllSessions(userId: string): Promise<void> {
+    await this.pool.query('DELETE FROM sessions WHERE user_id = $1', {
+      params: [userId],
+    });
+  }
+
   public async getMemories(
     userId: string,
   ): Promise<{ id: string; content: string }[]> {
@@ -222,6 +232,7 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
       createdAt: user.created_at,
     };
   }
+
   public async deleteUser(userId: string): Promise<void> {
     await this.pool.query('DELETE FROM users WHERE id = $1', {
       params: [userId],
@@ -324,6 +335,12 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
       'DELETE FROM user_memories WHERE user_id = $1 AND id = $2',
       { params: [userId, id] },
     );
+  }
+
+  public async deleteMemories(userId: string): Promise<void> {
+    await this.pool.query('DELETE FROM user_memories WHERE user_id = $1', {
+      params: [userId],
+    });
   }
 }
 
