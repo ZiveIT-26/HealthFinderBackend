@@ -5,7 +5,9 @@ import {
   Param,
   Post,
   BadRequestException,
+  HttpCode,
   Logger,
+  NotFoundException,
   Res,
   Req,
   UnauthorizedException,
@@ -31,6 +33,16 @@ import type { DoctorResponse } from '../../services/llm/doctor-response.js';
 import type { StreamChunk } from '../../services/llm/chat-session.service.js';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
 import type { AuthenticatedRequestUser } from '../../auth/auth.types.js';
+import {
+  DeviceLocationService,
+  parseSharedLocation,
+} from '../../services/llm/device-location.service.js';
+
+type LocationAnswerBody = {
+  requestId?: unknown;
+  source?: unknown; //"current" or "home" with `location`, or "declined"
+  location?: unknown;
+};
 
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
@@ -39,11 +51,12 @@ export class ChatController {
 
   constructor(
     private readonly chatSessionService: ChatSessionService,
+    private readonly deviceLocation: DeviceLocationService,
   ) {}
 
   @Post()
   async sendMessage(
-    @Body() body: { prompt: string; sessionId?: string },
+    @Body() body: { prompt: string; sessionId?: string; location?: unknown },
     @Req() request: Request & { user: AuthenticatedRequestUser },
   ) {
     if (!body.prompt) {
@@ -54,7 +67,41 @@ export class ChatController {
       body.prompt,
       body.sessionId,
       request.user.id,
+      // Invalid coordinates are ignored (see docs/API.md).
+      parseSharedLocation(body.location, 'current'),
     );
+  }
+
+
+  @Post('location')
+  @HttpCode(204)
+  answerLocationRequest(
+    @Body() body: LocationAnswerBody,
+    @Req() request: Request & { user: AuthenticatedRequestUser },
+  ): void {
+    const { requestId, source } = body ?? {};
+    if (typeof requestId !== 'string' || !requestId) {
+      throw new BadRequestException('requestId is required');
+    }
+
+    let answer: Parameters<DeviceLocationService['answer']>[2];
+    if (source === 'declined') {
+      answer = 'declined';
+    } else if (source === 'current' || source === 'home') {
+      const location = parseSharedLocation(body.location, source);
+      if (!location) {
+        throw new BadRequestException(
+          'location must have lat (-90..90) and lon (-180..180) numbers',
+        );
+      }
+      answer = location;
+    } else {
+      throw new BadRequestException('source must be "current", "home" or "declined"');
+    }
+
+    if (!this.deviceLocation.answer(requestId, request.user.id, answer)) {
+      throw new NotFoundException('Location request not found or already answered');
+    }
   }
 
   @Get('stream/:id')
@@ -196,6 +243,7 @@ function toSseData(chunk: StreamChunk): Record<string, unknown> {
     (chunk.type === 'heartbeat' ||
       chunk.type === 'error' ||
       chunk.type === 'title' ||
+      chunk.type === 'location_request' ||
       chunk.type === 'debug')
   ) {
     return chunk;

@@ -29,6 +29,8 @@ import { createDoctorSources } from './sources/index.js';
 import { createFindMedicalFacilityTool } from './tools/find-medical-facility.tool.js';
 import { createWebSearchTool } from './tools/web-search.tool.js';
 import { createFacilityToolForModel, FIND_MEDICAL_FACILITY_TOOL } from './tools/facility-result.js';
+import { createRequestLocationTool } from './tools/request-location.tool.js';
+import { DeviceLocationService, type LocationAccess } from './device-location.service.js';
 import { fillTemplate } from '../../config/template.js';
 import type { TriageResult } from './triage/triage.js';
 import { createTriageStep } from './triage/triage-step.js';
@@ -153,11 +155,14 @@ function createAgentGraph(
   dbService: DbService,
   memoryStore: InMemoryStore<{ id: string; content: string }[]>,
   sessionId: string,
+  location: LocationAccess,
 ) {
   const doctorSources = createDoctorSources(httpService, llmConfig);
   const findDoctorsTool = createFindDoctorsTool(doctorSources, llmConfig);
   const findMedicalFacilityTool = createFindMedicalFacilityTool();
-  const facilityToolForModel = createFacilityToolForModel(findMedicalFacilityTool, llmConfig);
+  const facilityToolForModel = createFacilityToolForModel(findMedicalFacilityTool, llmConfig, location);
+  // Not given to the emergency branch: an emergency answer never waits for the user.
+  const requestLocationTool = createRequestLocationTool(location, llmConfig);
   const memoryTools = createMemoryTools(memoryStore, dbService, sessionId);
 
   const webSearchEnabled = tavilyApiKey.trim() !== '';
@@ -166,6 +171,7 @@ function createAgentGraph(
   }
 
   const tools = [
+    requestLocationTool,
     facilityToolForModel,
     findDoctorsTool,
     ...memoryTools,
@@ -328,6 +334,7 @@ export class AgentService {
     config: ConfigService,
     private readonly httpService: HttpService,
     private readonly dbService: DbService,
+    private readonly deviceLocation: DeviceLocationService,
   ) {
     const main = readLlmSettings(config);
     const triage = readTriageLlmSettings(config);
@@ -342,6 +349,7 @@ export class AgentService {
   streamEvents(
     messages: BaseMessage[],
     sessionId: string,
+    userId: string,
   ) {
     const graph = createAgentGraph(
       this.model,
@@ -352,6 +360,7 @@ export class AgentService {
       this.dbService,
       this.memoryStore,
       sessionId,
+      this.deviceLocation.forSession(sessionId, userId),
     );
     return graph.streamEvents(
       { messages },

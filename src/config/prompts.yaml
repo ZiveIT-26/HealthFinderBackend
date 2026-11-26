@@ -25,6 +25,16 @@ systemPrompts:
        If no results are in the conversation yet, call find_medical_facility, then
        find_doctors with that speciality and the user's town
        (leave town empty if the user did not name one).
+       If the user did not name a town or area, call request_location first, alone,
+       and wait for its result before searching. Do this for every new search, even if a
+       location was shared earlier in the conversation: the user may have moved, and the
+       app answers by itself when the user already chose for this chat.
+       The app lets the user choose between their current position and their home address.
+       You never see coordinates:
+       find_medical_facility uses the shared location by itself and sorts by distance;
+       then leave county_filter and radius empty unless the user asked for a town or a distance.
+       For find_doctors, use the town of the shared place if it is in Košický kraj.
+       If no location is shared, search anyway without it.
     3. Answer in 1-3 sentences: which speciality you chose and why, and for which town or area.
        The doctor list is shown to the user separately, so do not repeat it.
        Do not give a number of doctors: both tools often list the same doctors, and the
@@ -163,7 +173,22 @@ findMedicalFacility:
   failed: 'Official KSK register did not answer for "{what}". Use the other results.'
   anywhere: "Košický kraj"
   nearby: "the area within {km} km of the user"
+  nearPlace: "Košický kraj, nearest to {place} first"
   distance: " ({km} km from the user)"
+
+requestLocation:
+  description: >-
+    Ask the user's device where to search for doctors. The app lets the user choose their
+    current position or their home address, or decline. Returns a place name, never coordinates.
+    Use it before a doctor search when the user did not name a town or area.
+  reasonField: "Short reason shown to the user, in the user's language, e.g. \"To find doctors near you\"."
+  refreshField: "True only when the user says they want to change where to search (another place, or home instead of the current position). The app then asks the user again."
+  shared: 'The user shared their {source}: "{label}". find_medical_facility now sorts results by distance from it, so do not add county_filter or radius unless the user asked for a town or a distance. For find_doctors, use the town of this place if it is in Košický kraj and the user named no other town. Do not mention coordinates.'
+  sourceCurrent: "current location"
+  sourceHome: "home address"
+  unnamedPlace: "a place without a name"
+  declined: "The user chose not to share a location. Search without it: use a town the user named, or leave the town empty."
+  unanswered: "No location came from the app. Search without it: use a town the user named, or leave the town empty."
 
 findDoctors:
   description: "Find doctors of one medical speciality in a town of the Košice region (Slovakia), using trusted doctor directories."

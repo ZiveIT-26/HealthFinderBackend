@@ -3,6 +3,7 @@ import * as readline from 'node:readline';
 import { AppModule } from '../app.module.js';
 import { ChatSessionService } from '../services/llm/chat-session.service.js';
 import { DbService } from '../services/db/db.service.js';
+import { DeviceLocationService, parseSharedLocation } from '../services/llm/device-location.service.js';
 import { type CliState, DEBUG_SECTIONS, UUID, runCommand } from './commands/index.js';
 import { Renderer } from './render/renderer.js';
 
@@ -32,6 +33,7 @@ const app = await NestFactory.createApplicationContext(AppModule, {
 });
 const chat = app.get(ChatSessionService);
 const db = app.get(DbService);
+const deviceLocation = app.get(DeviceLocationService);
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 rl.on('SIGINT', () => rl.close()); // Ctrl+C
@@ -66,6 +68,7 @@ async function sendMessage(text: string): Promise<void> {
       else if ('doctors' in chunk) out.doctors(chunk);
       else if (chunk.type === 'error') out.error(chunk.message);
       else if (chunk.type === 'title') out.info(`[title] ${chunk.title}`);
+      else if (chunk.type === 'location_request') await answerLocation(chunk.requestId, chunk.reason);
 
       else if (chunk.type === 'debug') {
         switch (chunk.kind) {
@@ -90,6 +93,29 @@ async function sendMessage(text: string): Promise<void> {
   } catch (error) {
     out.error(describeError(error));
   }
+}
+
+
+async function answerLocation(requestId: string, reason?: string): Promise<void> {
+  out.info(`[location] the assistant asks for a location${reason ? `: ${reason}` : ''}`);
+  const line = await new Promise<string>((resolve) =>
+    rl.question('location> "lat,lon[,label]", "home lat,lon[,label]", empty = decline: ', resolve),
+  );
+
+  const text = line.trim();
+  if (!text) {
+    deviceLocation.answer(requestId, state.userId, 'declined');
+    return;
+  }
+
+  const home = /^home\s+/i.test(text);
+  const [lat, lon, ...label] = text.replace(/^home\s+/i, '').split(',');
+  const location = parseSharedLocation(
+    { lat: Number(lat), lon: Number(lon), label: label.join(',') },
+    home ? 'home' : 'current',
+  );
+  if (!location) out.error('not a valid "lat,lon"; declining');
+  deviceLocation.answer(requestId, state.userId, location ?? 'declined');
 }
 
 function describeError(error: unknown): string {

@@ -36,6 +36,7 @@ type PromptsConfig = {
   };
   findDoctors: FindDoctorsTexts;
   findMedicalFacility: FindMedicalFacilityTexts;
+  requestLocation: RequestLocationTexts;
 };
 
 export type FindMedicalFacilityTexts = {
@@ -48,7 +49,20 @@ export type FindMedicalFacilityTexts = {
   failed: string;
   anywhere: string;
   nearby: string;
+  nearPlace: string;
   distance: string;
+};
+
+export type RequestLocationTexts = {
+  description: string;
+  reasonField: string;
+  refreshField: string;
+  shared: string;
+  sourceCurrent: string;
+  sourceHome: string;
+  unnamedPlace: string;
+  declined: string;
+  unanswered: string;
 };
 
 export type TranscriptLabels = {
