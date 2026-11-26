@@ -12,21 +12,12 @@ import type {
 } from '../device-location.service.js';
 
 export const REQUEST_LOCATION_TOOL = 'request_location';
-
-/**
- * Custom LangChain event sent while a tool waits for the app. The chat stream
- * turns it into the SSE payload `{ type: 'location_request', requestId, reason? }`.
- */
 export const LOCATION_REQUEST_EVENT = 'location_request';
 
 export type LocationRequestEvent = {
   type: 'location_request';
   requestId: string;
   reason?: string;
-  /**
-   * The user wants to change the location: the app shows the choice even
-   * when it remembers one for this chat.
-   */
   change?: true;
 };
 
@@ -34,11 +25,6 @@ const REASON_MAX_LENGTH = 120;
 
 const logger = new Logger('RequestLocation');
 
-/**
- * Asks the app for the location and waits for the answer (or the timeout).
- * Several tools of one session asking at once share one request, so the user
- * sees one question.
- */
 export async function askDeviceLocation(
   access: LocationAccess,
   config: RunnableConfig | undefined,
@@ -63,7 +49,7 @@ export async function askDeviceLocation(
   return request.reply;
 }
 
-/** What the model reads about a location. Never contains coordinates. */
+// What the model reads about a location. Never contains coordinates
 export function describeLocation(location: SharedLocation, texts: RequestLocationTexts): string {
   return fillTemplate(texts.shared, {
     source: location.source === 'home' ? texts.sourceHome : texts.sourceCurrent,
@@ -82,10 +68,6 @@ export function describeReply(reply: LocationReply, texts: RequestLocationTexts)
   }
 }
 
-/**
- * Lets the model ask the user's device where to search. The app asks the user
- * to choose between the current position and the home address.
- */
 export function createRequestLocationTool(
   access: LocationAccess,
   { requestLocation: texts }: { requestLocation: RequestLocationTexts },
