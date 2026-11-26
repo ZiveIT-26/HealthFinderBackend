@@ -93,9 +93,10 @@ Request:
 }
 ```
 
-`location` is optional and is used to improve nearby facility searches. Invalid
-coordinates are ignored. Valid ranges are latitude `-90..90` and longitude
-`-180..180`.
+`location` is optional. When it is sent, it becomes the chat's location, as if
+the user had answered a `location_request` with their current position (see
+[Location requests](#location-requests)). Invalid coordinates are ignored.
+Valid ranges are latitude `-90..90` and longitude `-180..180`.
 
 Response `200`:
 
@@ -137,6 +138,8 @@ Possible payloads:
 | Token message | `{ "type": "token", "text": "..." }` |
 | Doctors list | `{ "type": "doctors_list", "doctors": [...] }` |
 | Heartbeat | `{ "type": "heartbeat", "timestamp": "ISO-8601" }` |
+| Session title | `{ "type": "title", "sessionId": "uuid", "title": "..." }` |
+| Location request | `{ "type": "location_request", "requestId": "uuid", "reason": "optional text" }` |
 | Error | `{ "type": "error", "message": "..." }` |
 
 Doctor objects contain:
@@ -160,6 +163,68 @@ The HTTP stream does not emit debug events. Assistant text is delivered as
 multiple `token` events; doctor results, when available, are delivered in a
 separate `doctors_list` event.
 
+## Location requests
+
+The assistant may need to know where to search for doctors. It then pauses the
+response and asks the app: the stream sends
+
+```text
+data: {"type":"location_request","requestId":"uuid","reason":"To find doctors near you"}
+
+```
+
+`reason` is optional. `"change": true` is added when the user asked to search
+somewhere else: the app should then show the choice again, even if it
+remembers one for this chat.
+
+The app asks the user whether to use their current position or their home
+address, and answers with `POST /chat/location`. The stream stays open and
+continues after the answer. Without an answer within 2 minutes, the assistant
+continues without a location.
+
+`POST /chat/location`
+
+Headers:
+
+```http
+Content-Type: application/json
+Authorization: Bearer <backend-jwt>
+```
+
+Request, the user shared a location:
+
+```json
+{
+  "requestId": "uuid from the event",
+  "source": "current",
+  "location": { "lat": 48.7164, "lon": 21.2611, "label": "Košice - Staré Mesto" }
+}
+```
+
+`source` is `"current"` (the device's position) or `"home"` (the home address
+saved in the app). `label` is optional: a place name for the assistant, for
+example from reverse geocoding on the device.
+
+Request, the user declined:
+
+```json
+{ "requestId": "uuid from the event", "source": "declined" }
+```
+
+Responses:
+
+- `204`: the stream continues.
+- `400`: invalid `source` or coordinates.
+- `404`: no such request for this user (already answered or timed out).
+
+The location is kept in the server's memory for the current response only and
+is not saved to the database. The model only sees the label, never the
+coordinates; facility searches use the coordinates to sort by distance. Every
+new message asks again, so a moving user is not searched from an old point.
+Asking the user once per chat is the app's job: it may remember the user's
+choice and answer the next requests by itself with a fresh position.
+The assistant does not ask in an emergency.
+
 ## Frontend example
 
 ```js
@@ -177,6 +242,7 @@ events.onmessage = ({ data }) => {
   // chunk.type === "token": append chunk.text
   // chunk.type === "doctors_list": render chunk.doctors
   // chunk.type === "heartbeat": ignore
+  // chunk.type === "location_request": ask the user, then POST /chat/location
   // chunk.type === "error": show an error
 };
 

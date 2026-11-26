@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { loadLlmConfig } from '../../config/llm.config.js';
 import { ChatSessionService } from '../../services/llm/chat-session.service.js';
 import { AccessTokenAuthGuard } from '../../auth/access-token-auth.guard.js';
+import { DeviceLocationService } from '../../services/llm/device-location.service.js';
 
 describe('ChatController', () => {
   let controller: ChatController;
@@ -14,6 +15,7 @@ describe('ChatController', () => {
       // The real service needs a database and an LLM; a stub is enough here.
       providers: [
         { provide: ChatSessionService, useValue: {} },
+        DeviceLocationService,
         { provide: ConfigService, useValue: { getOrThrow: () => loadLlmConfig() } },
       ],
     })

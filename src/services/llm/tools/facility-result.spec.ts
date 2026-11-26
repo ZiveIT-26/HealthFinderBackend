@@ -10,6 +10,7 @@ import {
   withoutDuplicateFacilities,
 } from './facility-result.js';
 import type { createFindMedicalFacilityTool } from './find-medical-facility.tool.js';
+import { DeviceLocationService } from '../device-location.service.js';
 
 const config = loadLlmConfig();
 
@@ -121,6 +122,31 @@ describe('with a fake find_medical_facility tool', () => {
     const content = await wrapped.invoke({ query: 'všeobecn', county_filter: 'Košice II' });
     expect(String(content)).toContain('1. Všeobecná ambulancia pre dospelých, MUDr. C');
     expect(String(content)).not.toContain('"properties"');
+  });
+
+  it('uses the location shared in the chat; the model never sends coordinates', async () => {
+    const service = new DeviceLocationService();
+    service.remember('s', { lat: 48.72, lon: 21.25, source: 'home', label: 'Staré Mesto' });
+    const facility = fakeTool(records);
+    const wrapped = createFacilityToolForModel(facility, config, service.forSession('s', 'u'));
+
+    const content = await wrapped.invoke({ query: 'všeobecn', user_latitude: 1, user_longitude: 1 } as never);
+    expect(facility.invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ user_latitude: 48.72, user_longitude: 21.25 }),
+    );
+    expect(String(content)).toContain('nearest to Staré Mesto');
+  });
+
+  it('a county named by the model needs no location', async () => {
+    const service = new DeviceLocationService();
+    const facility = fakeTool(records);
+    const wrapped = createFacilityToolForModel(facility, config, service.forSession('s', 'u'));
+
+    await wrapped.invoke({ query: 'všeobecn', county_filter: 'Košice II' });
+    expect(facility.invoke).toHaveBeenCalledWith(
+      expect.not.objectContaining({ user_latitude: expect.anything() }),
+    );
+    expect(service.state('s')).toEqual({ status: 'unknown' });
   });
 });
 

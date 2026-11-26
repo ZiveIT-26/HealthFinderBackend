@@ -24,6 +24,18 @@ GET http://localhost:3000/chat/stream/{{streamId}}
 Authorization: Bearer {{accessToken}}
 Accept: text/event-stream
 
+### Answer a location_request while the stream above waits
+# Paste the requestId from the "location_request" event; "source": "declined" skips it.
+POST http://localhost:3000/chat/location
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "requestId": "paste-from-the-stream",
+  "source": "current",
+  "location": { "lat": 48.7164, "lon": 21.2611, "label": "Košice - Staré Mesto" }
+}
+
 ### Continue the conversation
 POST http://localhost:3000/chat
 Authorization: Bearer {{accessToken}}

@@ -22,6 +22,28 @@ const KEYS_TO_REMOVE_POINT = ['type', 'id', 'bbox'];
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export const facilitySearchSchema = z.object({
+  query: z
+    .string()
+    .optional()
+    .describe(
+      "Search string for the facility or doctor name/type (e.g., 'zubná').",
+    ),
+  county_filter: z
+    .string()
+    .optional()
+    .describe("Filter by specific county (e.g., 'Košice I')."),
+  user_latitude: z
+    .number()
+    .optional()
+    .describe("User's latitude for distance calculation."),
+  user_longitude: z
+    .number()
+    .optional()
+    .describe("User's longitude for distance calculation."),
+  radius: z.number().optional().describe('Search radius in kilometers.'),
+});
+
 export function createFindMedicalFacilityTool() {
   return tool(
     async ({ query, county_filter, user_latitude, user_longitude, radius }) => {
@@ -103,27 +125,7 @@ export function createFindMedicalFacilityTool() {
       name: 'find_medical_facility',
       description:
         'Search for healthcare facilities and doctors in the Košice region based on name, county, and distance from the user.',
-      schema: z.object({
-        query: z
-          .string()
-          .optional()
-          .describe(
-            "Search string for the facility or doctor name/type (e.g., 'zubná').",
-          ),
-        county_filter: z
-          .string()
-          .optional()
-          .describe("Filter by specific county (e.g., 'Košice I')."),
-        user_latitude: z
-          .number()
-          .optional()
-          .describe("User's latitude for distance calculation."),
-        user_longitude: z
-          .number()
-          .optional()
-          .describe("User's longitude for distance calculation."),
-        radius: z.number().optional().describe('Search radius in kilometers.'),
-      }),
+      schema: facilitySearchSchema,
     },
   );
 }

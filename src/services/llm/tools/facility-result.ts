@@ -1,14 +1,21 @@
 import { Logger } from '@nestjs/common';
+import type { RunnableConfig } from '@langchain/core/runnables';
 import { tool } from '@langchain/core/tools';
 import type {
   DoctorListTexts,
 
   FindMedicalFacilityTexts,
+  RequestLocationTexts,
 } from '../../../config/llm.config.js';
 import { fillTemplate } from '../../../config/template.js';
+import type { LocationAccess, SharedLocation } from '../device-location.service.js';
 import type { DoctorResponse } from '../doctor-response.js';
-import type { createFindMedicalFacilityTool } from './find-medical-facility.tool.js';
+import {
+  facilitySearchSchema,
+  type createFindMedicalFacilityTool,
+} from './find-medical-facility.tool.js';
 import { normalize } from './find-doctors.tool.js';
+import { askDeviceLocation } from './request-location.tool.js';
 
 
 export const FIND_MEDICAL_FACILITY_TOOL = 'find_medical_facility';
@@ -34,7 +41,13 @@ export type FacilityArtifact = {
   sourceUrls: string[];
 };
 
-type Texts = { findMedicalFacility: FindMedicalFacilityTexts; doctorList: DoctorListTexts };
+type Texts = {
+  findMedicalFacility: FindMedicalFacilityTexts;
+  doctorList: DoctorListTexts;
+  requestLocation: RequestLocationTexts;
+};
+
+const modelSchema = facilitySearchSchema.omit({ user_latitude: true, user_longitude: true });
 
 export function townOf(facility: Facility): string | undefined {
   const { municipality, county } = facility.properties;
@@ -129,11 +142,23 @@ export function mapUrl(facility: Facility): string {
 
 export function facilityResult(
   facilities: Facility[],
-  { what, town, speciality, radiusKm }: { what: string; town?: string; speciality: string; radiusKm?: number },
-  texts: Texts,
+  {
+    what,
+    town,
+    speciality,
+    radiusKm,
+    near,
+  }: { what: string; town?: string; speciality: string; radiusKm?: number; near?: string },
+  texts: Pick<Texts, 'findMedicalFacility' | 'doctorList'>,
 ): [string, FacilityArtifact | undefined] {
   const t = texts.findMedicalFacility;
-  const place = town ?? (radiusKm !== undefined ? fillTemplate(t.nearby, { km: radiusKm }) : t.anywhere);
+  const place =
+    town ??
+    (radiusKm !== undefined
+      ? fillTemplate(t.nearby, { km: radiusKm })
+      : near !== undefined
+        ? fillTemplate(t.nearPlace, { place: near })
+        : t.anywhere);
   const unique = byDistance(withoutDuplicateFacilities(facilities));
   if (unique.length === 0) return [fillTemplate(t.noResults, { what, town: place }), undefined];
 
@@ -170,15 +195,49 @@ async function callTool(facilityTool: FacilityTool, args: Record<string, unknown
   return Array.isArray(result) ? (result as Facility[]) : [];
 }
 
-export function createFacilityToolForModel(facilityTool: FacilityTool, texts: Texts) {
+
+async function searchLocation(
+  location: LocationAccess | undefined,
+  county: string | undefined,
+  config: RunnableConfig | undefined,
+): Promise<SharedLocation | undefined> {
+  if (!location) return undefined;
+  const state = location.state();
+  if (state.status === 'shared') return state.location;
+  if (state.status !== 'unknown' || county) return undefined;
+
+  const reply = await askDeviceLocation(location, config);
+  return reply.kind === 'shared' ? reply.location : undefined;
+}
+
+export function createFacilityToolForModel(
+  facilityTool: FacilityTool,
+  texts: Texts,
+  location?: LocationAccess,
+) {
   return tool(
-    async (args: Record<string, unknown>): Promise<[string, FacilityArtifact | undefined]> => {
+    async (args: Record<string, unknown>, config): Promise<[string, FacilityArtifact | undefined]> => {
       const what = String(args.query ?? '');
       const county = typeof args.county_filter === 'string' ? args.county_filter : undefined;
+      const radiusKm = typeof args.radius === 'number' ? args.radius : undefined;
       try {
-        const found = await callTool(facilityTool, args);
+        const near = await searchLocation(location, county, config);
+        const found = await callTool(facilityTool, {
+          ...args,
+          ...(near ? { user_latitude: near.lat, user_longitude: near.lon } : {}),
+        });
         const exact = county ? inCounty(found, county) : found;
-        return facilityResult(exact.length > 0 ? exact : found, { what, town: county, speciality: what }, texts);
+        return facilityResult(
+          exact.length > 0 ? exact : found,
+          {
+            what,
+            town: county,
+            speciality: what,
+            radiusKm: near ? radiusKm : undefined,
+            near: near ? (near.label ?? texts.requestLocation.unnamedPlace) : undefined,
+          },
+          texts,
+        );
       } catch (error) {
         logger.warn(`find_medical_facility failed: ${String(error)}`);
         return [fillTemplate(texts.findMedicalFacility.failed, { what }), undefined];
@@ -187,7 +246,7 @@ export function createFacilityToolForModel(facilityTool: FacilityTool, texts: Te
     {
       name: FIND_MEDICAL_FACILITY_TOOL,
       description: facilityTool.description,
-      schema: facilityTool.schema,
+      schema: modelSchema,
       responseFormat: 'content_and_artifact',
     },
   );

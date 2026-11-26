@@ -9,6 +9,11 @@ import { SessionTitleService } from './session-title.service.js';
 import type { DoctorListPayload, DoctorResponse } from './doctor-response.js';
 import type { DebugEvent, TokenUsage } from './debug-events.js';
 import { TRIAGE_LEVEL_NAMES, type TriageResult } from './triage/triage.js';
+import { DeviceLocationService, type SharedLocation } from './device-location.service.js';
+import {
+  LOCATION_REQUEST_EVENT,
+  type LocationRequestEvent,
+} from './tools/request-location.tool.js';
 
 const DEBUG = false;
 export type StreamChunk =
@@ -17,6 +22,7 @@ export type StreamChunk =
   | DebugEvent
   | { type: 'heartbeat'; timestamp: string }
   | { type: 'title'; sessionId: string; title: string }
+  | LocationRequestEvent
   | { type: 'error'; message: string };
 
 @Injectable()
@@ -42,12 +48,14 @@ export class ChatSessionService {
     private agentService: AgentService,
     private sessionTitleService: SessionTitleService,
     private config: ConfigService,
+    private deviceLocation: DeviceLocationService,
   ) {}
 
   public async prepareStream(
     prompt: string,
     incomingSessionId: string | undefined,
     userId: string,
+    location?: SharedLocation,
   ) {
     const sessionId = incomingSessionId || randomUUID();
 
@@ -74,6 +82,10 @@ export class ChatSessionService {
 
       this.sessions.set(sessionId, formattedHistory);
     }
+
+    // Each reply asks for the location again (the app may answer by itself).
+    this.deviceLocation.startReply(sessionId);
+    if (location) this.deviceLocation.remember(sessionId, location);
 
     const history = this.sessions.get(sessionId) || [];
 
@@ -175,7 +187,8 @@ export class ChatSessionService {
     const eventStream = this.agentService.streamEvents(
       messages,
       sessionId,
-      signal,
+      userId,
+      signal
     );
     let completeAssistantResponse = '';
     let completeDoctorResponse: DoctorResponse | undefined;
@@ -247,31 +260,37 @@ export class ChatSessionService {
               break;
             }
 
-            const content = event.data.chunk?.content;
-            if (!content || typeof content !== 'string') break;
-            completeAssistantResponse += content;
-            yield content;
-            break;
+          const content = event.data.chunk?.content;
+          if (!content || typeof content !== 'string') break;
+          completeAssistantResponse += content;
+          yield content;
+          break;
+        }
+        case 'on_chat_model_end': {
+          const usage = getTokenUsage(event.data.output);
+          messageTokenUsage = addTokenUsage(messageTokenUsage, usage);
+          modelCalls += 1;
+          this.logger.log(
+            `[${sessionId}] Model call finished${eventNode} ` +
+              `tokens: input=${usage.input}, output=${usage.output}, total=${usage.total}`,
+          );
+          if (debug) {
+            yield {
+              type: 'debug',
+              kind: 'model',
+              node: graphNode ?? 'unknown',
+              tokens: usage,
+              ms: elapsedSince(runStartedAt, event.run_id),
+            };
           }
-          case 'on_chat_model_end': {
-            const usage = getTokenUsage(event.data.output);
-            messageTokenUsage = addTokenUsage(messageTokenUsage, usage);
-            modelCalls += 1;
-            this.logger.log(
-              `[${sessionId}] Model call finished${eventNode} ` +
-                `tokens: input=${usage.input}, output=${usage.output}, total=${usage.total}`,
-            );
-            if (debug) {
-              yield {
-                type: 'debug',
-                kind: 'model',
-                node: graphNode ?? 'unknown',
-                tokens: usage,
-                ms: elapsedSince(runStartedAt, event.run_id),
-              };
-            }
-            break;
+          break;
+        }
+
+        case 'on_custom_event':
+          if (event.name === LOCATION_REQUEST_EVENT) {
+            yield event.data as LocationRequestEvent;
           }
+          break;
 
           case 'on_tool_start':
             runStartedAt.set(event.run_id, Date.now());

@@ -12,6 +12,7 @@ import { AuthController } from './controllers/auth/auth.controller.js';
 import { AuthService } from './services/auth/auth.service.js';
 import { AccessTokenAuthGuard } from './auth/access-token-auth.guard.js';
 import { SessionTitleService } from './services/llm/session-title.service.js';
+import { DeviceLocationService } from './services/llm/device-location.service.js';
 import { SharedMemoryController } from './controllers/memory/shared-memory.controller.js';
 
 @Module({
@@ -35,6 +36,7 @@ import { SharedMemoryController } from './controllers/memory/shared-memory.contr
     AuthService,
     AccessTokenAuthGuard,
     SessionTitleService,
+    DeviceLocationService,
   ],
 })
 export class AppModule {}
