@@ -15,8 +15,9 @@ fallbackMessages:
 
 errors:
   messageRequired: "Message is required"
-  streamNotFound: "Stream session not found or expired. Create a new message and use its returned streamId."
-  streamFailed: "The stream could not be completed. Please try again."
+  streamNotFound:
+  streamFailed:
+  idTokenRequired:
 
 doctorList:
   addressMissing: "Not available"

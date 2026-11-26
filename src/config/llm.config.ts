@@ -28,6 +28,7 @@ type PromptsConfig = {
     emergencyResponse: string;
     emergencyMemory: string;
     responseFormatter: string;
+    sessionTitle: string;
   };
   transcript: TranscriptLabels;
   doctorResponse: {
@@ -80,11 +81,6 @@ type MessagesConfig = {
     emergency: string;
     answerFailed: string;
     doctorsFound: string;
-  };
-  errors: {
-    messageRequired: string;
-    streamNotFound: string;
-    streamFailed: string;
   };
   doctorList: DoctorListTexts;
 };

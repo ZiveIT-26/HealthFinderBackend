@@ -7,8 +7,13 @@ import {
   BadRequestException,
   Logger,
   Res,
+  Req,
+  UnauthorizedException,
+  UseGuards,
+  Patch,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import type { Request } from 'express';
 import {
   catchError,
   defer,
@@ -21,35 +26,34 @@ import {
   takeUntil,
   timer,
 } from 'rxjs';
-import { ConfigService } from '@nestjs/config';
-import type { LlmConfig } from '../../config/llm.config.js';
 import { ChatSessionService } from '../../services/llm/chat-session.service.js';
 import type { DoctorResponse } from '../../services/llm/doctor-response.js';
 import type { StreamChunk } from '../../services/llm/chat-session.service.js';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
+import type { AuthenticatedRequestUser } from '../../auth/auth.types.js';
 
 @Controller('chat')
+@UseGuards(JwtAuthGuard)
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
-  private readonly errors: LlmConfig['errors'];
 
   constructor(
     private readonly chatSessionService: ChatSessionService,
-    config: ConfigService,
-  ) {
-    this.errors = config.getOrThrow<LlmConfig>('llm').errors;
-  }
+  ) {}
 
   @Post()
   async sendMessage(
     @Body() body: { prompt: string; sessionId?: string },
+    @Req() request: Request & { user: AuthenticatedRequestUser },
   ) {
     if (!body.prompt) {
-      throw new BadRequestException(this.errors.messageRequired);
+      throw new BadRequestException('Message is required');
     }
 
     return this.chatSessionService.prepareStream(
       body.prompt,
       body.sessionId,
+      request.user.id,
     );
   }
 
@@ -57,7 +61,26 @@ export class ChatController {
   streamAIResponse(
     @Param('id') id: string,
     @Res() response: Response,
+    @Req() request: Request & { user: AuthenticatedRequestUser },
   ): void {
+    void this.streamWithAuthentication(id, response, request.user.id);
+  }
+
+  private async streamWithAuthentication(
+    id: string,
+    response: Response,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.chatSessionService.assertStreamOwner(id, userId);
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        response.status(error.getStatus()).json(error.getResponse());
+        return;
+      }
+      throw error;
+    }
+
     response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     response.setHeader('Connection', 'keep-alive');
@@ -66,7 +89,7 @@ export class ChatController {
 
     const stream = defer(() => {
       this.logger.log(`[ChatController] Opening stream ${id}`);
-      return from(this.chatSessionService.generateStream(id));
+      return from(this.chatSessionService.generateStream(id, userId));
     }).pipe(
       (source) => {
         const completed$ = new Subject<void>();
@@ -106,7 +129,7 @@ export class ChatController {
         return of({
           data: {
             type: 'error',
-            message: this.errors.streamFailed,
+            message: 'The stream could not be completed. Please try again.',
           },
         } as MessageEvent);
       }),
@@ -128,6 +151,39 @@ export class ChatController {
 
     response.on('close', () => subscription.unsubscribe());
   }
+
+  @Patch('sessions/:id')
+  async renameSession(
+    @Param('id') id: string,
+    @Body() body: { title?: string },
+    @Req() request: Request & { user: AuthenticatedRequestUser }
+  ) {
+    const title = body.title?.trim();
+    if (!title) throw new BadRequestException('Title is required');
+    if (title.length > 100) throw new BadRequestException('Title is too long');
+
+    await this.chatSessionService.renameSession(id, title, request.user.id);
+    return { sessionId: id, title };
+  }
+
+  @Get('history/:sessionId')
+  async getHistory(
+    @Param('sessionId') sessionId: string,
+    @Req() request: Request & { user: AuthenticatedRequestUser },
+  ) {
+    await this.chatSessionService.assertSessionOwner(
+      sessionId,
+      request.user.id,
+    );
+    return this.chatSessionService.getHistory(sessionId);
+  }
+
+  @Get('sessions')
+  async getSessions(
+    @Req() request: Request & { user: AuthenticatedRequestUser },
+  ) {
+    return this.chatSessionService.getSessions(request.user.id);
+  }
 }
 
 function toSseData(chunk: StreamChunk): Record<string, unknown> {
@@ -139,6 +195,7 @@ function toSseData(chunk: StreamChunk): Record<string, unknown> {
     'type' in chunk &&
     (chunk.type === 'heartbeat' ||
       chunk.type === 'error' ||
+      chunk.type === 'title' ||
       chunk.type === 'debug')
   ) {
     return chunk;

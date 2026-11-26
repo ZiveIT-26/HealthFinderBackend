@@ -6,12 +6,17 @@ DROP TABLE IF EXISTS users CASCADE;
 
 CREATE TABLE users (
   id UUID PRIMARY KEY,
+  google_subject TEXT UNIQUE,
+  email TEXT,
+  display_name TEXT,
+  avatar_url TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE sessions (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -20,6 +25,7 @@ CREATE TABLE chat_messages (
   session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
   content TEXT NOT NULL,
+  payload JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

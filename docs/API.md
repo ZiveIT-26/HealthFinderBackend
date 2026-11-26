@@ -1,8 +1,52 @@
+[← Back to README](../README.md)
+
 # HealthFinder API
 
 Base URL: `http://localhost:3000`
 
-No authentication is required by the current API.
+`GET /` is public. Chat endpoints require a backend JWT in the
+`Authorization: Bearer <token>` header.
+
+## Google authentication
+
+The Flutter app must obtain a Google ID token and exchange it with the backend:
+
+```http
+POST /auth/google
+Content-Type: application/json
+
+{
+  "idToken": "google-id-token"
+}
+```
+
+The backend verifies the token audience and signature, creates or updates the
+local user, and returns a backend JWT:
+
+```json
+{
+  "accessToken": "backend-jwt",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "displayName": "User",
+    "avatarUrl": "https://..."
+  }
+}
+```
+
+### Development test authentication
+
+For local API testing without a Google ID token, set
+`TEST_AUTH_ENABLED=true` in the backend environment and call:
+
+```http
+POST /auth/test-login
+```
+
+This creates or reuses a deterministic test user and returns the same
+`{ accessToken, user }` response shape. The endpoint returns `403` unless test
+authentication is enabled, and is always blocked when `NODE_ENV=production`.
 
 ## Health check
 
@@ -22,6 +66,7 @@ Headers:
 
 ```http
 Content-Type: application/json
+Authorization: Bearer <backend-jwt>
 ```
 
 Request:
@@ -63,6 +108,7 @@ Headers:
 
 ```http
 Accept: text/event-stream
+Authorization: Bearer <backend-jwt>
 ```
 
 The response is **Server-Sent Events (SSE)**. Each event is a JSON object in a
@@ -136,5 +182,56 @@ await fetch(`${API_URL}/chat`, {
 });
 ```
 
-The current backend does not expose a history HTTP endpoint. The
-`/chat/history/:sessionId` example in `test.http` is not an implemented route.
+## Chat history
+
+`GET /chat/history/:sessionId`
+
+Returns the saved messages in chronological order. Assistant messages that
+contain doctor results include a `payload` object:
+
+```json
+[
+  {
+    "role": "user",
+    "content": "Find me a neurologist.",
+    "payload": null
+  },
+  {
+    "role": "assistant",
+    "content": "I found neurologists near you.",
+    "payload": {
+      "type": "doctors_list",
+      "doctors": [
+        {
+          "name": "Doctor name",
+          "speciality": "Speciality",
+          "address": "Address",
+          "url": "https://...",
+          "phone": null,
+          "email": null,
+          "additionalInfo": null
+        }
+      ]
+    }
+  }
+]
+```
+
+The session must belong to the authenticated user.
+
+## Chat sessions
+
+`GET /chat/sessions`
+
+Returns all sessions belonging to the authenticated user, newest first,
+without chat histories:
+
+```json
+[
+  {
+    "id": "uuid",
+    "title": "Headache consultation",
+    "createdAt": "2026-11-23T18:30:00.000Z"
+  }
+]
+```

@@ -1,44 +1,79 @@
-### 1. New conversation start
+### Development authentication
+POST http://localhost:3000/auth/test-login
+
+> {%
+  client.global.set("accessToken", response.body.accessToken);
+%}
+
+### Start a new conversation
 POST http://localhost:3000/chat
+Authorization: Bearer {{accessToken}}
 Content-Type: application/json
 
-{"prompt": "Bolí ma hlava už tri dni. Najdi mi lekara. Nepytaj dalsie otazky"}
+{
+  "prompt": "Bolí ma hlava už tri dni. Najdi mi lekára. Nepýtaj ďalšie otázky."
+}
 
-> {% client.global.set("streamId", response.body.streamId); client.global.set("sessionId", response.body.sessionId); %}
+> {%
+  client.global.set("streamId", response.body.streamId);
+  client.global.set("sessionId", response.body.sessionId);
+%}
 
-### - 2. Run after first post
+### Stream the first response
 GET http://localhost:3000/chat/stream/{{streamId}}
+Authorization: Bearer {{accessToken}}
 Accept: text/event-stream
 
-### 3. Next post in the sequence
+### Continue the conversation
 POST http://localhost:3000/chat
+Authorization: Bearer {{accessToken}}
 Content-Type: application/json
 
-{"prompt": "A mám aj teplotu", "sessionId": "{{sessionId}}"}
+{
+  "prompt": "A mám aj teplotu.",
+  "sessionId": "{{sessionId}}"
+}
 
-> {% client.global.set("streamId", response.body.streamId); %}
+> {%
+  client.global.set("streamId", response.body.streamId);
+%}
 
-
-### 2.1 Run after first post
-GET http://localhost:3000/chat/history/{{sessionId}}
-
-
-### 3. Next post in the sequence
-POST http://localhost:3000/chat
-Content-Type: application/json
-
-{"prompt": "Ano, asi 38.5", "sessionId": "{{sessionId}}"}
-
-> {% client.global.set("streamId", response.body.streamId); %}
-
-### 1. Test emergency checker in a new conversation
-POST http://localhost:3000/chat
-Content-Type: application/json
-
-{"prompt": "Silno krvácam."}
-
-> {% client.global.set("streamId", response.body.streamId); client.global.set("sessionId", response.body.sessionId); %}
-
-### - 2. Run after post
+### Stream the follow-up response
 GET http://localhost:3000/chat/stream/{{streamId}}
+Authorization: Bearer {{accessToken}}
+Accept: text/event-stream
+
+### Get chat history
+GET http://localhost:3000/chat/history/{{sessionId}}
+Authorization: Bearer {{accessToken}}
+
+### Get all sessions
+GET http://localhost:3000/chat/sessions
+Authorization: Bearer {{accessToken}}
+
+### Rename the session
+PATCH http://localhost:3000/chat/sessions/{{sessionId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "title": "Headache consultation"
+}
+
+### Test the emergency checker
+POST http://localhost:3000/chat
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "prompt": "Silno krvácam."
+}
+
+> {%
+  client.global.set("emergencyStreamId", response.body.streamId);
+%}
+
+### Stream the emergency response
+GET http://localhost:3000/chat/stream/{{emergencyStreamId}}
+Authorization: Bearer {{accessToken}}
 Accept: text/event-stream
