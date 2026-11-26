@@ -3,7 +3,12 @@ import {
   Body,
   Controller,
   Post,
+  Req,
+  UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
+import type { AuthenticatedRequest } from '../../auth/auth.types.js';
+import { AccessTokenAuthGuard } from '../../auth/access-token-auth.guard.js';
 import { AuthService } from '../../services/auth/auth.service.js';
 
 
@@ -23,5 +28,15 @@ export class AuthController {
   @Post('test-login')
   signInForTesting() {
     return this.authService.signInForTesting();
+  }
+
+  @Post('logout')
+  @UseGuards(AccessTokenAuthGuard)
+  logout(@Req() request: AuthenticatedRequest) {
+    if (!request.authTokenHash) {
+      throw new UnauthorizedException('Authentication is required');
+    }
+
+    return this.authService.logout(request.authTokenHash);
   }
 }

@@ -8,11 +8,11 @@ import { ChatController } from './controllers/chat/chat.controller.js';
 import { ChatSessionService } from './services/llm/chat-session.service.js';
 import { DbService } from './services/db/db.service.js';
 import { AgentService } from './services/llm/agent.service.js';
-import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './controllers/auth/auth.controller.js';
 import { AuthService } from './services/auth/auth.service.js';
-import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
+import { AccessTokenAuthGuard } from './auth/access-token-auth.guard.js';
 import { SessionTitleService } from './services/llm/session-title.service.js';
+import { SharedMemoryController } from './controllers/memory/shared-memory.controller.js';
 
 @Module({
   imports: [
@@ -20,16 +20,20 @@ import { SessionTitleService } from './services/llm/session-title.service.js';
       load: [llmConfig],
     }),
     HttpModule,
-    JwtModule.register({}),
   ],
-  controllers: [AppController, ChatController, AuthController],
+  controllers: [
+    AppController,
+    ChatController,
+    AuthController,
+    SharedMemoryController,
+  ],
   providers: [
     AppService,
     ChatSessionService,
     DbService,
     AgentService,
     AuthService,
-    JwtAuthGuard,
+    AccessTokenAuthGuard,
     SessionTitleService,
   ],
 })

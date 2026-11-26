@@ -27,6 +27,14 @@ export class ChatSessionService {
     string,
     { sessionId: string; userId: string; messages: BaseMessage[] }
   >();
+  private activeStreams = new Map<
+    string,
+    {
+      sessionId: string;
+      userId: string;
+      abortController: AbortController;
+    }
+  >();
   private untitledSessions = new Map<string, string>();
 
   constructor(
@@ -79,12 +87,43 @@ export class ChatSessionService {
     return { streamId, sessionId };
   }
 
-
   //
   async *generateStream(
     streamId: string,
     userId: string,
     options: { debug?: boolean } = {},
+  ): AsyncGenerator<StreamChunk> {
+    const queuedStream = this.streamQueue.get(streamId);
+    if (!queuedStream || queuedStream.userId !== userId) {
+      yield* this.generateStreamBody(streamId, userId, options);
+      return;
+    }
+
+    const abortController = new AbortController();
+    this.activeStreams.set(streamId, {
+      sessionId: queuedStream.sessionId,
+      userId,
+      abortController,
+    });
+
+    try {
+      yield* this.generateStreamBody(
+        streamId,
+        userId,
+        options,
+        abortController.signal,
+      );
+    } finally {
+      abortController.abort();
+      this.activeStreams.delete(streamId);
+    }
+  }
+
+  private async *generateStreamBody(
+    streamId: string,
+    userId: string,
+    options: { debug?: boolean },
+    signal?: AbortSignal,
   ): AsyncGenerator<StreamChunk> {
     const queueData = this.streamQueue.get(streamId);
 
@@ -94,7 +133,8 @@ export class ChatSessionService {
       );
       yield {
         type: 'error',
-        message: "Stream session not found or expired. Create a new message and use its returned streamId.",
+        message:
+          'Stream session not found or expired. Create a new message and use its returned streamId.',
       };
       return;
     }
@@ -110,9 +150,7 @@ export class ChatSessionService {
 
     this.streamQueue.delete(streamId);
     const { sessionId, messages } = queueData;
-    this.logger.log(
-      `[${sessionId}] Starting stream [stream=${streamId}]`,
-    );
+    this.logger.log(`[${sessionId}] Starting stream [stream=${streamId}]`);
 
     const debug = options.debug === true;
     const streamStartedAt = Date.now();
@@ -126,11 +164,19 @@ export class ChatSessionService {
         kind: 'context',
         sessionId,
         messages: messages.length,
-        chars: messages.reduce((sum, message) => sum + contentLength(message.content), 0),
+        chars: messages.reduce(
+          (sum, message) => sum + contentLength(message.content),
+          0,
+        ),
       };
     }
 
-    const eventStream = this.agentService.streamEvents(messages, sessionId);
+    if (signal?.aborted) return;
+    const eventStream = this.agentService.streamEvents(
+      messages,
+      sessionId,
+      signal,
+    );
     let completeAssistantResponse = '';
     let completeDoctorResponse: DoctorResponse | undefined;
     let messageTokenUsage = {
@@ -147,143 +193,146 @@ export class ChatSessionService {
           Boolean(graphNode) && event.name === graphNode;
 
         switch (event.event) {
-        case 'on_chain_start':
-          if (!isGraphNodeLifecycle) break;
-          this.logger.log(
-            `[${sessionId}] Graph node started${eventNode}`,
-          );
-          break;
-        case 'on_chain_end':
-          if (!isGraphNodeLifecycle) break;
-          this.logger.log(`[${sessionId}] Graph node finished${eventNode}`);
-          if (debug && graphNode === 'triage') {
-            const triage = event.data.output?.triageResult as TriageResult | undefined;
-            if (triage) {
+          case 'on_chain_start':
+            if (!isGraphNodeLifecycle) break;
+            this.logger.log(`[${sessionId}] Graph node started${eventNode}`);
+            break;
+          case 'on_chain_end':
+            if (!isGraphNodeLifecycle) break;
+            this.logger.log(`[${sessionId}] Graph node finished${eventNode}`);
+            if (debug && graphNode === 'triage') {
+              const triage = event.data.output?.triageResult as
+                TriageResult | undefined;
+              if (triage) {
+                yield {
+                  type: 'debug',
+                  kind: 'triage',
+                  level: triage.level,
+                  levelName: TRIAGE_LEVEL_NAMES[triage.level],
+                  modelLevel: triage.modelLevel,
+                  hasSymptoms: triage.hasSymptoms,
+                  redFlags: triage.redFlags,
+                  reasons: triage.reasons,
+                };
+              }
+            }
+            if (graphNode === 'emergency' || graphNode === 'finalize') {
+              const response = event.data.output?.response as
+                DoctorResponse | undefined;
+              if (response) {
+                completeAssistantResponse = response.text;
+                completeDoctorResponse = response;
+              }
+            }
+            break;
+          case 'on_chain_error':
+            this.logger.error(
+              `[${sessionId}] Graph node failed${eventNode}`,
+              formatError(event.data.error ?? event.data),
+            );
+            break;
+
+          case 'on_chat_model_start':
+            runStartedAt.set(event.run_id, Date.now());
+            this.logger.log(`[${sessionId}] Model call started${eventNode}`);
+            break;
+          case 'on_chat_model_error':
+            this.logger.error(
+              `[${sessionId}] Model call failed${eventNode}`,
+              formatError(event.data.error ?? event.data),
+            );
+            break;
+          case 'on_chat_model_stream': {
+            if (graphNode === 'triage' || graphNode === 'finalize') {
+              break;
+            }
+
+            const content = event.data.chunk?.content;
+            if (!content || typeof content !== 'string') break;
+            completeAssistantResponse += content;
+            yield content;
+            break;
+          }
+          case 'on_chat_model_end': {
+            const usage = getTokenUsage(event.data.output);
+            messageTokenUsage = addTokenUsage(messageTokenUsage, usage);
+            modelCalls += 1;
+            this.logger.log(
+              `[${sessionId}] Model call finished${eventNode} ` +
+                `tokens: input=${usage.input}, output=${usage.output}, total=${usage.total}`,
+            );
+            if (debug) {
               yield {
                 type: 'debug',
-                kind: 'triage',
-                level: triage.level,
-                levelName: TRIAGE_LEVEL_NAMES[triage.level],
-                modelLevel: triage.modelLevel,
-                hasSymptoms: triage.hasSymptoms,
-                redFlags: triage.redFlags,
-                reasons: triage.reasons,
+                kind: 'model',
+                node: graphNode ?? 'unknown',
+                tokens: usage,
+                ms: elapsedSince(runStartedAt, event.run_id),
               };
             }
-          }
-          if (graphNode === 'emergency' || graphNode === 'finalize') {
-            const response = event.data.output?.response as
-              | DoctorResponse
-              | undefined;
-            if (response) {
-              completeAssistantResponse = response.text;
-              completeDoctorResponse = response;
-            }
-          }
-          break;
-        case 'on_chain_error':
-          this.logger.error(
-            `[${sessionId}] Graph node failed${eventNode}`,
-            formatError(event.data.error ?? event.data),
-          );
-          break;
-
-        case 'on_chat_model_start':
-          runStartedAt.set(event.run_id, Date.now());
-          this.logger.log(
-            `[${sessionId}] Model call started${eventNode}`,
-          );
-          break;
-        case 'on_chat_model_error':
-          this.logger.error(
-            `[${sessionId}] Model call failed${eventNode}`,
-            formatError(event.data.error ?? event.data),
-          );
-          break;
-        case 'on_chat_model_stream': {
-          if (
-            graphNode === 'triage' ||
-            graphNode === 'finalize'
-          ) {
             break;
           }
 
-          const content = event.data.chunk?.content;
-          if (!content || typeof content !== 'string') break;
-          completeAssistantResponse += content;
-          yield content;
-          break;
-        }
-        case 'on_chat_model_end': {
-          const usage = getTokenUsage(event.data.output);
-          messageTokenUsage = addTokenUsage(messageTokenUsage, usage);
-          modelCalls += 1;
-          this.logger.log(
-            `[${sessionId}] Model call finished${eventNode} ` +
-              `tokens: input=${usage.input}, output=${usage.output}, total=${usage.total}`,
-          );
-          if (debug) {
-            yield {
-              type: 'debug',
-              kind: 'model',
-              node: graphNode ?? 'unknown',
-              tokens: usage,
-              ms: elapsedSince(runStartedAt, event.run_id),
-            };
+          case 'on_tool_start':
+            runStartedAt.set(event.run_id, Date.now());
+            this.logger.log(
+              `[${sessionId}] Tool call started: ${event.name}(${JSON.stringify(event.data.input)})`,
+            );
+            break;
+          case 'on_tool_end': {
+            toolCalls += 1;
+            const output = event.data.output?.content ?? event.data.output;
+            const outputText =
+              typeof output === 'string'
+                ? output
+                : JSON.stringify(output ?? '');
+            this.logger.log(
+              `[${sessionId}] Tool call finished: ${event.name}\n${outputText}`,
+            );
+            if (debug) {
+              yield {
+                type: 'debug',
+                kind: 'tool',
+                name: event.name,
+                args: event.data.input,
+                ms: elapsedSince(runStartedAt, event.run_id),
+                resultChars: outputText.length,
+              };
+            }
+            break;
           }
-          break;
-        }
-
-        case 'on_tool_start':
-          runStartedAt.set(event.run_id, Date.now());
-          this.logger.log(
-            `[${sessionId}] Tool call started: ${event.name}(${JSON.stringify(event.data.input)})`,
-          );
-          break;
-        case 'on_tool_end': {
-          toolCalls += 1;
-          const output = event.data.output?.content ?? event.data.output;
-          const outputText = typeof output === 'string' ? output : JSON.stringify(output ?? '');
-          this.logger.log(`[${sessionId}] Tool call finished: ${event.name}\n${outputText}`);
-          if (debug) {
-            yield {
-              type: 'debug',
-              kind: 'tool',
-              name: event.name,
-              args: event.data.input,
-              ms: elapsedSince(runStartedAt, event.run_id),
-              resultChars: outputText.length,
-            };
-          }
-          break;
-        }
-        case 'on_tool_error':
-          toolCalls += 1;
-          this.logger.error(
-            `[${sessionId}] Tool error: ${event.name}`,
-            formatError(event.data.error ?? event.data),
-          );
-          if (debug) {
-            yield {
-              type: 'debug',
-              kind: 'tool',
-              name: event.name,
-              args: event.data.input,
-              ms: elapsedSince(runStartedAt, event.run_id),
-              error: getErrorMessage(event.data.error ?? event.data),
-            };
-          }
-          break;
+          case 'on_tool_error':
+            toolCalls += 1;
+            this.logger.error(
+              `[${sessionId}] Tool error: ${event.name}`,
+              formatError(event.data.error ?? event.data),
+            );
+            if (debug) {
+              yield {
+                type: 'debug',
+                kind: 'tool',
+                name: event.name,
+                args: event.data.input,
+                ms: elapsedSince(runStartedAt, event.run_id),
+                error: getErrorMessage(event.data.error ?? event.data),
+              };
+            }
+            break;
         }
       }
     } catch (error) {
+      if (signal?.aborted) return;
       const message = getErrorMessage(error);
       this.logger.error(
         `[${sessionId}] Agent stream failed: ${message}`,
         error instanceof Error ? error.stack : undefined,
       );
-      yield this.config.getOrThrow<LlmConfig>('llm').fallbackMessages.answerFailed.trim();
+      yield this.config
+        .getOrThrow<LlmConfig>('llm')
+        .fallbackMessages.answerFailed.trim();
     }
+
+    if (signal?.aborted) return;
 
     this.logger.log(
       `[${sessionId}] Message token usage: ` +
@@ -314,6 +363,8 @@ export class ChatSessionService {
       );
     }
 
+    if (signal?.aborted) return;
+
     if (DEBUG) {
       this.logger.log(
         `[${sessionId}] Assistant response:\n${completeAssistantResponse}`,
@@ -323,11 +374,14 @@ export class ChatSessionService {
       yield completeDoctorResponse;
     }
 
+    if (signal?.aborted) return;
     const titleChunk = await this.nameSession(sessionId);
+    if (signal?.aborted) return;
     if (titleChunk) {
       yield titleChunk;
     }
 
+    if (signal?.aborted) return;
     if (debug) {
       yield {
         type: 'debug',
@@ -379,7 +433,9 @@ export class ChatSessionService {
       throw new NotFoundException('Session not found');
     }
     if (ownerId !== userId) {
-      throw new UnauthorizedException('Session does not belong to the authenticated user');
+      throw new UnauthorizedException(
+        'Session does not belong to the authenticated user',
+      );
     }
     await this.dbService.setSessionTitle(sessionId, title);
   }
@@ -410,6 +466,46 @@ export class ChatSessionService {
     payload: DoctorListPayload | null;
   }[]> {
     return await this.dbService.getSessionHistory(sessionId);
+  }
+
+  public async deleteSession(sessionId: string): Promise<void> {
+    for (const [streamId, stream] of this.streamQueue) {
+      if (stream.sessionId === sessionId) {
+        this.streamQueue.delete(streamId);
+      }
+    }
+    for (const stream of this.activeStreams.values()) {
+      if (stream.sessionId === sessionId) {
+        stream.abortController.abort();
+      }
+    }
+
+    await this.dbService.deleteSession(sessionId);
+    this.sessions.delete(sessionId);
+    this.untitledSessions.delete(sessionId);
+  }
+
+  public async deleteAllSessions(userId: string): Promise<void> {
+    const sessions = await this.dbService.listSessions(userId);
+    const sessionIds = new Set(sessions.map(({ id }) => id));
+
+    for (const [streamId, stream] of this.streamQueue) {
+      if (stream.userId === userId || sessionIds.has(stream.sessionId)) {
+        this.streamQueue.delete(streamId);
+      }
+    }
+    for (const stream of this.activeStreams.values()) {
+      if (stream.userId === userId || sessionIds.has(stream.sessionId)) {
+        stream.abortController.abort();
+      }
+    }
+
+    await this.dbService.deleteAllSessions(userId);
+
+    for (const sessionId of sessionIds) {
+      this.sessions.delete(sessionId);
+      this.untitledSessions.delete(sessionId);
+    }
   }
 }
 

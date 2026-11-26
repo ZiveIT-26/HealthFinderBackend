@@ -4,8 +4,12 @@
 
 Base URL: `http://localhost:3000`
 
-`GET /` is public. Chat endpoints require a backend JWT in the
-`Authorization: Bearer <token>` header.
+`GET /` is public. All `/chat` and `/shared-memory` endpoints, as well as
+`POST /auth/logout`, require a backend access token:
+
+```http
+Authorization: Bearer <access-token>
+```
 
 ## Google authentication
 
@@ -20,12 +24,14 @@ Content-Type: application/json
 }
 ```
 
-The backend verifies the token audience and signature, creates or updates the
-local user, and returns a backend JWT:
+The backend verifies the Google token audience and signature, creates or
+updates the local user, and returns a random backend access token. Only a
+SHA-256 hash of the token is stored in the database. Its 90-day inactivity
+expiration is extended whenever it is used:
 
 ```json
 {
-  "accessToken": "backend-jwt",
+  "accessToken": "backend-access-token",
   "user": {
     "id": "uuid",
     "email": "user@example.com",
@@ -34,6 +40,11 @@ local user, and returns a backend JWT:
   }
 }
 ```
+
+### Logout
+
+`POST /auth/logout` revokes the current access token. Include it in the
+`Authorization` header as shown above. After logout, it cannot be used again.
 
 ### Development test authentication
 
@@ -66,7 +77,7 @@ Headers:
 
 ```http
 Content-Type: application/json
-Authorization: Bearer <backend-jwt>
+Authorization: Bearer <access-token>
 ```
 
 Request:
@@ -108,7 +119,7 @@ Headers:
 
 ```http
 Accept: text/event-stream
-Authorization: Bearer <backend-jwt>
+Authorization: Bearer <access-token>
 ```
 
 The response is **Server-Sent Events (SSE)**. Each event is a JSON object in a
@@ -235,3 +246,30 @@ without chat histories:
   }
 ]
 ```
+
+`DELETE /chat/sessions/:id` deletes one session and its messages. The session
+must belong to the authenticated user. It returns `200` with an empty body.
+
+`DELETE /chat/sessions` deletes all sessions belonging to the authenticated
+user. It returns `200` with an empty body.
+
+## Shared memories
+
+All shared-memory endpoints operate only on the authenticated user's memories.
+
+`GET /shared-memory` returns the user's saved memories:
+
+```json
+[
+  {
+    "id": "1",
+    "content": "Prefers appointments near home."
+  }
+]
+```
+
+`DELETE /shared-memory/:memoryId` deletes one of the user's memories and
+returns `200` with an empty body.
+
+`DELETE /shared-memory` deletes all of the authenticated user's memories and
+returns `200` with an empty body.

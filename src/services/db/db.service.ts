@@ -7,6 +7,16 @@ import {
   type DoctorListPayload,
 } from '../llm/doctor-response.js';
 
+type User = {
+  id: string;
+  googleSubject: string | null;
+  email: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  createdAt: Date;
+}
+
+
 @Injectable()
 export class DbService implements OnModuleDestroy, OnModuleInit {
   public pool: Pool;
@@ -54,6 +64,43 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
     );
   }
 
+  public async createAccessToken(
+    tokenHash: string,
+    userId: string,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO access_tokens (token_hash, user_id, expires_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '90 days')`,
+      { params: [tokenHash, userId] },
+    );
+  }
+
+  public async refreshAccessToken(
+    tokenHash: string,
+  ): Promise<{ id: string; email: string } | undefined> {
+    const result = await this.pool.query(
+      `UPDATE access_tokens AS tokens
+       SET last_used_at = CURRENT_TIMESTAMP,
+           expires_at = CURRENT_TIMESTAMP + INTERVAL '90 days'
+       FROM users
+       WHERE tokens.token_hash = $1
+         AND tokens.user_id = users.id
+         AND tokens.expires_at > CURRENT_TIMESTAMP
+         AND users.email IS NOT NULL
+       RETURNING users.id, users.email`,
+      { params: [tokenHash], objectRows: true },
+    );
+
+    const row = result.rows?.[0];
+    return row ? { id: String(row.id), email: String(row.email) } : undefined;
+  }
+
+  public async deleteAccessToken(tokenHash: string): Promise<void> {
+    await this.pool.query('DELETE FROM access_tokens WHERE token_hash = $1', {
+      params: [tokenHash],
+    });
+  }
+
   public async createSession(sessionId: string, userId: string): Promise<void> {
     await this.ensureUser(userId);
     await this.pool.query(
@@ -62,14 +109,18 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
     );
   }
 
-  public async setSessionTitle(sessionId: string, title: string): Promise<void> {
-    await this.pool.query(
-      'UPDATE sessions SET title = $1 WHERE id = $2',
-      { params: [title, sessionId] },
-    );
+  public async setSessionTitle(
+    sessionId: string,
+    title: string,
+  ): Promise<void> {
+    await this.pool.query('UPDATE sessions SET title = $1 WHERE id = $2', {
+      params: [title, sessionId],
+    });
   }
 
-  public async getSessionTitle(sessionId: string): Promise<string | null | undefined> {
+  public async getSessionTitle(
+    sessionId: string,
+  ): Promise<string | null | undefined> {
     const result = await this.pool.query(
       'SELECT title FROM sessions WHERE id = $1',
       { params: [sessionId], objectRows: true },
@@ -96,7 +147,9 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
     );
   }
 
-  public async getSessionUserId(sessionId: string): Promise<string | undefined> {
+  public async getSessionUserId(
+    sessionId: string,
+  ): Promise<string | undefined> {
     const result = await this.pool.query(
       'SELECT user_id FROM sessions WHERE id = $1',
       { params: [sessionId], objectRows: true },
@@ -111,27 +164,45 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
       { params: [sessionId], objectRows: true },
     );
 
-    return (result.rows ?? []).map((row: {
-      role: 'user' | 'assistant';
-      content: string;
-      payload: unknown;
-    }) => ({
-      role: row.role,
-      content: row.content,
-      payload: parsePayload(row.payload),
-    }));
+    return (result.rows ?? []).map(
+      (row: {
+        role: 'user' | 'assistant';
+        content: string;
+        payload: unknown;
+      }) => ({
+        role: row.role,
+        content: row.content,
+        payload: parsePayload(row.payload),
+      }),
+    );
   }
 
-  public async getMemories(userId: string): Promise<{ id: string; content: string }[]> {
+  public async deleteSession(sessionId: string): Promise<void> {
+    await this.pool.query('DELETE FROM sessions WHERE id = $1', {
+      params: [sessionId],
+    });
+  }
+
+  public async deleteAllSessions(userId: string): Promise<void> {
+    await this.pool.query('DELETE FROM sessions WHERE user_id = $1', {
+      params: [userId],
+    });
+  }
+
+  public async getMemories(
+    userId: string,
+  ): Promise<{ id: string; content: string }[]> {
     const result = await this.pool.query(
       'SELECT id, content FROM user_memories WHERE user_id = $1 ORDER BY created_at ASC, id ASC',
       { params: [userId], objectRows: true },
     );
 
-    return (result.rows ?? []).map((row: { id: string | number; content: string }) => ({
-      id: String(row.id),
-      content: row.content,
-    }));
+    return (result.rows ?? []).map(
+      (row: { id: string | number; content: string }) => ({
+        id: String(row.id),
+        content: row.content,
+      }),
+    );
   }
 
   public async ensureUser(userId: string): Promise<void> {
@@ -139,6 +210,33 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
       'INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
       { params: [userId] },
     );
+  }
+
+  public async getUser(userId: string): Promise<User> {
+    const result = await this.pool.query(
+      'SELECT id, google_subject, email, display_name, avatar_url, created_at FROM users WHERE id = $1',
+      { params: [userId], objectRows: true },
+    );
+
+    const user = result.rows?.[0];
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    return {
+      id: String(user.id),
+      googleSubject: user.google_subject ?? null,
+      email: user.email ?? null,
+      displayName: user.display_name ?? null,
+      avatarUrl: user.avatar_url ?? null,
+      createdAt: user.created_at,
+    };
+  }
+
+  public async deleteUser(userId: string): Promise<void> {
+    await this.pool.query('DELETE FROM users WHERE id = $1', {
+      params: [userId],
+    });
   }
 
   public async findOrCreateTestUser(input: {
@@ -221,7 +319,11 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
     );
   }
 
-  public async updateMemory(userId: string, id: string, content: string): Promise<void> {
+  public async updateMemory(
+    userId: string,
+    id: string,
+    content: string,
+  ): Promise<void> {
     await this.pool.query(
       'UPDATE user_memories SET content = $1 WHERE user_id = $2 AND id = $3',
       { params: [content, userId, id] },
@@ -233,6 +335,12 @@ export class DbService implements OnModuleDestroy, OnModuleInit {
       'DELETE FROM user_memories WHERE user_id = $1 AND id = $2',
       { params: [userId, id] },
     );
+  }
+
+  public async deleteMemories(userId: string): Promise<void> {
+    await this.pool.query('DELETE FROM user_memories WHERE user_id = $1', {
+      params: [userId],
+    });
   }
 }
 

@@ -10,7 +10,7 @@ import {
   Req,
   UnauthorizedException,
   UseGuards,
-  Patch,
+  Patch, Delete,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import type { Request } from 'express';
@@ -29,17 +29,15 @@ import {
 import { ChatSessionService } from '../../services/llm/chat-session.service.js';
 import type { DoctorResponse } from '../../services/llm/doctor-response.js';
 import type { StreamChunk } from '../../services/llm/chat-session.service.js';
-import { JwtAuthGuard } from '../../auth/jwt-auth.guard.js';
+import { AccessTokenAuthGuard } from '../../auth/access-token-auth.guard.js';
 import type { AuthenticatedRequestUser } from '../../auth/auth.types.js';
 
 @Controller('chat')
-@UseGuards(JwtAuthGuard)
+@UseGuards(AccessTokenAuthGuard)
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
 
-  constructor(
-    private readonly chatSessionService: ChatSessionService,
-  ) {}
+  constructor(private readonly chatSessionService: ChatSessionService) {}
 
   @Post()
   async sendMessage(
@@ -97,7 +95,9 @@ export class ChatController {
           takeUntil(completed$),
           map(() => {
             const timestamp = new Date().toISOString();
-            this.logger.log(`[ChatController] SSE heartbeat ${id}: ${timestamp}`);
+            this.logger.log(
+              `[ChatController] SSE heartbeat ${id}: ${timestamp}`,
+            );
             return {
               type: 'heartbeat',
               timestamp,
@@ -136,17 +136,17 @@ export class ChatController {
     );
 
     const subscription = stream.subscribe({
-    next: (event) => {
-      response.write(`data: ${JSON.stringify(event.data)}\n\n`);
-    },
-    error: (error: unknown) => {
-      this.logger.error(
-        `[ChatController] Stream failed ${id}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-      response.end();
-    },
-    complete: () => response.end(),
+      next: (event) => {
+        response.write(`data: ${JSON.stringify(event.data)}\n\n`);
+      },
+      error: (error: unknown) => {
+        this.logger.error(
+          `[ChatController] Stream failed ${id}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+        response.end();
+      },
+      complete: () => response.end(),
     });
 
     response.on('close', () => subscription.unsubscribe());
@@ -156,7 +156,7 @@ export class ChatController {
   async renameSession(
     @Param('id') id: string,
     @Body() body: { title?: string },
-    @Req() request: Request & { user: AuthenticatedRequestUser }
+    @Req() request: Request & { user: AuthenticatedRequestUser },
   ) {
     const title = body.title?.trim();
     if (!title) throw new BadRequestException('Title is required');
@@ -183,6 +183,26 @@ export class ChatController {
     @Req() request: Request & { user: AuthenticatedRequestUser },
   ) {
     return this.chatSessionService.getSessions(request.user.id);
+  }
+
+  @Delete('sessions/:id')
+  async deleteSession(
+    @Param('id') sessionId: string,
+    @Req() request: Request & { user: AuthenticatedRequestUser },
+  ) {
+    await this.chatSessionService.assertSessionOwner(
+      sessionId,
+      request.user.id,
+    );
+
+    return this.chatSessionService.deleteSession(sessionId);
+  }
+
+  @Delete('sessions')
+  async deleteAllSessions(
+    @Req() request: Request & { user: AuthenticatedRequestUser },
+  ) {
+    return this.chatSessionService.deleteAllSessions(request.user.id);
   }
 }
 
